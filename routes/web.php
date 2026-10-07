@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\MerchantController;
 use App\Http\Controllers\Merchant\CredentialController;
 use App\Http\Controllers\Admin\FormController;
+use App\Http\Controllers\FormSubmissionController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -43,4 +44,11 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
-require __DIR__.'/auth.php';
+require __DIR__ . '/auth.php';
+
+Route::get('/f/{uuid}', [FormSubmissionController::class, 'show'])->name('form.public');
+Route::post('/f/{uuid}', [FormSubmissionController::class, 'store'])
+    ->middleware('throttle:10,1')
+    ->name('form.submit');
+Route::post('/f/{uuid}/payment-callback', [FormSubmissionController::class, 'paymentCallback'])
+    ->name('form.payment.callback');

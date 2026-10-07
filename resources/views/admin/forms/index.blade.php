@@ -54,8 +54,7 @@
                                     </form>
                                 </td>
                                 <td class="px-4 py-2">
-                                    <span class="text-gray-400 text-sm" title="{{ $form->uuid }}">Link
-                                        (pending)</span>
+                                    <a href="{{ route('form.public', $form->uuid) }}" target="_blank" class="text-blue-600 text-sm underline">View Link</a>
                                 </td>
                                 <td class="px-4 py-2 space-x-2">
                                     <a href="{{ route('admin.forms.edit', $form) }}"
