@@ -11,7 +11,11 @@ use App\Http\Controllers\Merchant\DashboardController as MerchantDashboardContro
 use App\Http\Controllers\SubmissionController;
 
 Route::get('/', function () {
-    return view('welcome');
+    if (auth()->check()) {
+        return redirect()->route('dashboard');
+    }
+
+    return redirect()->route('login');
 });
 
 Route::get('/dashboard', function () {
