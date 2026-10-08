@@ -8,7 +8,7 @@
     <div class="py-12">
         <div class="max-w-3xl mx-auto sm:px-6 lg:px-8">
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-
+                <x-wizard-steps :current="1" />
                 @if ($errors->any())
                     <div class="mb-4 bg-red-50 text-red-700 p-4 rounded">
                         <ul class="list-disc list-inside">

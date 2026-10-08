@@ -5,15 +5,15 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Form;
 use App\Models\FormField;
+use App\Models\FormPaymentConfig;
 use App\Models\User;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 
 class FormController extends Controller
 {
-    /**
-     * List all forms.
-     */
     public function index()
     {
         $forms = Form::with('user')->latest()->paginate(15);
@@ -21,9 +21,8 @@ class FormController extends Controller
         return view('admin.forms.index', compact('forms'));
     }
 
-    /**
-     * Show create form page.
-     */
+    /* ---------- STEP 1: Basic info + fields ---------- */
+
     public function create()
     {
         $merchants = User::role('merchant')->orderBy('company_name')->get();
@@ -31,14 +30,11 @@ class FormController extends Controller
         return view('admin.forms.create', compact('merchants'));
     }
 
-    /**
-     * Store new form with fields.
-     */
     public function store(Request $request)
     {
         $validated = $this->validateForm($request);
 
-        DB::transaction(function () use ($validated) {
+        $form = DB::transaction(function () use ($validated) {
             $form = Form::create([
                 'user_id' => $validated['user_id'],
                 'title' => $validated['title'],
@@ -47,18 +43,19 @@ class FormController extends Controller
                 'fixed_amount' => $validated['amount_type'] === 'fixed' ? $validated['fixed_amount'] : null,
                 'is_active' => true,
                 'expires_at' => $validated['expires_at'] ?? null,
+                'wizard_step' => 2,
+                'is_complete' => false,
             ]);
 
             $this->saveFields($form, $validated['fields']);
+
+            return $form;
         });
 
-        return redirect()->route('admin.forms.index')
-            ->with('success', 'Form created successfully.');
+        return redirect()->route('admin.forms.payment', $form)
+            ->with('success', 'Step 1 saved. Now configure payment.');
     }
 
-    /**
-     * Show edit form page.
-     */
     public function edit(Form $form)
     {
         $merchants = User::role('merchant')->orderBy('company_name')->get();
@@ -67,35 +64,162 @@ class FormController extends Controller
         return view('admin.forms.edit', compact('form', 'merchants'));
     }
 
-    /**
-     * Update existing form and its fields.
-     */
     public function update(Request $request, Form $form)
     {
         $validated = $this->validateForm($request);
 
         DB::transaction(function () use ($validated, $form) {
-            $form->update([
+            $data = [
                 'user_id' => $validated['user_id'],
                 'title' => $validated['title'],
                 'description' => $validated['description'] ?? null,
                 'amount_type' => $validated['amount_type'],
                 'fixed_amount' => $validated['amount_type'] === 'fixed' ? $validated['fixed_amount'] : null,
                 'expires_at' => $validated['expires_at'] ?? null,
-            ]);
+            ];
 
-            // Remove old fields, re-create with new set (simplest for v1, avoids complex diffing)
+            if (! $form->is_complete) {
+                $data['wizard_step'] = max($form->wizard_step, 2);
+            }
+
+            $form->update($data);
+
             $form->fields()->delete();
             $this->saveFields($form, $validated['fields']);
         });
 
-        return redirect()->route('admin.forms.index')
-            ->with('success', 'Form updated successfully.');
+        return redirect()->route('admin.forms.payment', $form)
+            ->with('success', 'Step 1 updated. Continue with payment configuration.');
     }
 
-    /**
-     * Delete a form.
-     */
+    /* ---------- STEP 2: Payment configuration (per form) ---------- */
+
+    public function paymentEdit(Form $form)
+    {
+        $form->load('paymentConfig');
+
+        return view('admin.forms.payment', compact('form'));
+    }
+
+    public function paymentStore(Request $request, Form $form)
+    {
+        $form->load('paymentConfig');
+        $existing = $form->paymentConfig;
+        $hasConfig = $existing && $existing->is_verified;
+
+        $validated = $request->validate([
+            'razorpay_key_id' => [$hasConfig ? 'nullable' : 'required', 'string', 'starts_with:rzp_'],
+            'razorpay_key_secret' => ['nullable', 'string', 'min:20', $hasConfig ? 'nullable' : 'required'],
+            'webhook_secret' => ['nullable', 'string', 'min:8', 'max:255'],
+        ]);
+
+        $newWebhookSecret = $validated['webhook_secret'] ?? null;
+
+        $newKeyId = $validated['razorpay_key_id'] ?? null;
+        $newSecret = $validated['razorpay_key_secret'] ?? null;
+
+        // Keep existing credentials: secret empty and key id unchanged/empty
+        if ($hasConfig && empty($newSecret)) {
+            if (! empty($newKeyId) && $newKeyId !== $existing->razorpay_key_id) {
+                return back()
+                    ->withErrors(['razorpay_key_secret' => 'Key ID change ki hai to Key Secret bhi daalo.'])
+                    ->withInput();
+            }
+
+            if (! empty($newWebhookSecret)) {
+                $existing->update(['webhook_secret' => $newWebhookSecret]);
+            }
+
+            return redirect()->route('admin.forms.receipt', $form)
+                ->with('success', 'Existing credentials kept.');
+        }
+
+        if (empty($newKeyId)) {
+            return back()
+                ->withErrors(['razorpay_key_id' => 'Key ID required.'])
+                ->withInput($request->except('razorpay_key_secret'));
+        }
+
+        try {
+            $response = Http::timeout(15)
+                ->withBasicAuth($validated['razorpay_key_id'], $validated['razorpay_key_secret'])
+                ->get('https://api.razorpay.com/v1/payments', ['count' => 1]);
+        } catch (ConnectionException $e) {
+            return back()
+                ->withErrors(['razorpay_key_secret' => 'Could not reach Razorpay. Check internet and try again.'])
+                ->withInput($request->except('razorpay_key_secret'));
+        }
+
+        if ($response->status() === 401) {
+            return back()
+                ->withErrors(['razorpay_key_secret' => 'Invalid Razorpay credentials. Check Key ID and Key Secret.'])
+                ->withInput($request->except('razorpay_key_secret'));
+        }
+
+        if (! $response->successful()) {
+            return back()
+                ->withErrors(['razorpay_key_secret' => 'Could not verify credentials with Razorpay. Try again.'])
+                ->withInput($request->except('razorpay_key_secret'));
+        }
+
+        $configData = [
+            'razorpay_key_id' => $validated['razorpay_key_id'],
+            'razorpay_key_secret' => $validated['razorpay_key_secret'],
+            'is_verified' => true,
+        ];
+
+        if (! empty($newWebhookSecret)) {
+            $configData['webhook_secret'] = $newWebhookSecret;
+        }
+
+        FormPaymentConfig::updateOrCreate(
+            ['form_id' => $form->id],
+            $configData
+        );
+
+        if (! $form->is_complete) {
+            $form->update(['wizard_step' => max($form->wizard_step, 3)]);
+        }
+
+        return redirect()->route('admin.forms.receipt', $form)
+            ->with('success', 'Step 2 saved. Credentials verified.');
+    }
+
+    /* ---------- STEP 3: Receipt / success message + finish ---------- */
+
+    public function receiptEdit(Form $form)
+    {
+        if (! $form->paymentConfig || ! $form->paymentConfig->is_verified) {
+            return redirect()->route('admin.forms.payment', $form)
+                ->withErrors(['razorpay_key_id' => 'Complete payment configuration first.']);
+        }
+
+        return view('admin.forms.receipt', compact('form'));
+    }
+
+    public function receiptStore(Request $request, Form $form)
+    {
+        $validated = $request->validate([
+            'success_message' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        if (! $form->paymentConfig || ! $form->paymentConfig->is_verified) {
+            return redirect()->route('admin.forms.payment', $form)
+                ->withErrors(['razorpay_key_id' => 'Complete payment configuration first.']);
+        }
+
+        $form->update([
+            'success_message' => $validated['success_message'] ?? null,
+            'wizard_step' => 3,
+            'is_complete' => true,
+        ]);
+
+        return redirect()->route('admin.forms.index')
+            ->with('success', 'Form is complete and live.');
+    }
+
+    /* ---------- Other actions ---------- */
+
     public function destroy(Form $form)
     {
         $form->delete();
@@ -104,19 +228,19 @@ class FormController extends Controller
             ->with('success', 'Form deleted successfully.');
     }
 
-    /**
-     * Toggle active/inactive status.
-     */
     public function toggleStatus(Form $form)
     {
+        if (! $form->is_complete) {
+            return back()->withErrors(['form' => 'Finish the form setup before activating it.']);
+        }
+
         $form->update(['is_active' => ! $form->is_active]);
 
         return back()->with('success', 'Form status updated.');
     }
 
-    /**
-     * Shared validation rules for store/update.
-     */
+    /* ---------- Helpers ---------- */
+
     private function validateForm(Request $request): array
     {
         $validated = $request->validate([
@@ -134,7 +258,6 @@ class FormController extends Controller
             'fields.*.is_readonly' => ['nullable'],
         ]);
 
-        // Confirm the selected user actually has the 'merchant' role (defense against tampered payloads)
         $merchant = User::findOrFail($validated['user_id']);
         if (! $merchant->hasRole('merchant')) {
             abort(422, 'Selected user is not a valid merchant.');
@@ -143,16 +266,12 @@ class FormController extends Controller
         return $validated;
     }
 
-    /**
-     * Persist field rows for a form.
-     */
     private function saveFields(Form $form, array $fields): void
     {
-        foreach ($fields as $index => $fieldData) {
+        foreach (array_values($fields) as $index => $fieldData) {
             $options = null;
 
             if (in_array($fieldData['type'], ['dropdown', 'radio', 'checkbox']) && ! empty($fieldData['options'])) {
-                // Options submitted as comma-separated text, convert to array
                 $options = array_map('trim', explode(',', $fieldData['options']));
             }
 

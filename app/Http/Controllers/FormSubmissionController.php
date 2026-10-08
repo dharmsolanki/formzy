@@ -6,7 +6,6 @@ use App\Models\Form;
 use App\Models\FormSubmission;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-use App\Models\MerchantCredential;
 use Razorpay\Api\Api;
 
 class FormSubmissionController extends Controller
@@ -17,6 +16,10 @@ class FormSubmissionController extends Controller
     public function show(string $uuid)
     {
         $form = Form::where('uuid', $uuid)->with('fields')->firstOrFail();
+
+        if (! $form->is_complete) {
+            return view('public.form-unavailable', ['message' => 'This form is not available yet.']);
+        }
 
         if (! $form->is_active) {
             return view('public.form-unavailable', ['message' => 'This form is no longer accepting responses.']);
@@ -34,10 +37,18 @@ class FormSubmissionController extends Controller
      */
     public function store(Request $request, string $uuid)
     {
-        $form = Form::where('uuid', $uuid)->with('fields')->firstOrFail();
+        $form = Form::where('uuid', $uuid)->with(['fields', 'paymentConfig'])->firstOrFail();
 
-        if (! $form->is_active || ($form->expires_at && $form->expires_at->isPast())) {
+        if (! $form->is_complete
+            || ! $form->is_active
+            || ($form->expires_at && $form->expires_at->isPast())) {
             return back()->withErrors(['form' => 'This form is no longer accepting responses.']);
+        }
+
+        $config = $form->paymentConfig;
+
+        if (! $config || ! $config->is_verified) {
+            return back()->withErrors(['form' => 'Payments are not configured for this form. Please contact the organizer.']);
         }
 
         // Build dynamic validation rules based on this form's fields
@@ -45,11 +56,7 @@ class FormSubmissionController extends Controller
         foreach ($form->fields as $field) {
             $fieldRules = [];
 
-            if ($field->is_required) {
-                $fieldRules[] = 'required';
-            } else {
-                $fieldRules[] = 'nullable';
-            }
+            $fieldRules[] = $field->is_required ? 'required' : 'nullable';
 
             if ($field->type === 'email') {
                 $fieldRules[] = 'email';
@@ -66,7 +73,13 @@ class FormSubmissionController extends Controller
             $rules['custom_amount'] = ['required', 'numeric', 'min:1'];
         }
 
-        $validated = $request->validate($rules);
+        $attributes = [];
+        foreach ($form->fields as $field) {
+            $attributes["fields.{$field->id}"] = $field->label;
+        }
+        $attributes['custom_amount'] = 'amount';
+
+        $validated = $request->validate($rules, [], $attributes);
 
         // Map field IDs back to labels for readable storage
         $submissionData = [];
@@ -85,17 +98,11 @@ class FormSubmissionController extends Controller
             'payment_status' => 'pending',
         ]);
 
-        $credential = MerchantCredential::where('user_id', $form->user_id)->first();
-
-        if (! $credential || ! $credential->is_verified) {
-            return back()->withErrors(['form' => 'This merchant has not configured payments yet. Please contact the organizer.']);
-        }
-
-        $api = new Api($credential->razorpay_key_id, $credential->razorpay_key_secret);
+        $api = new Api($config->razorpay_key_id, $config->razorpay_key_secret);
 
         $razorpayOrder = $api->order->create([
             'receipt' => $submission->uuid,
-            'amount' => (int) round($submission->amount * 100), // amount in paise
+            'amount' => (int) round($submission->amount * 100), // paise
             'currency' => 'INR',
             'notes' => [
                 'form_submission_id' => $submission->id,
@@ -108,7 +115,7 @@ class FormSubmissionController extends Controller
             'submission' => $submission,
             'form' => $form,
             'razorpayOrderId' => $razorpayOrder->id,
-            'razorpayKeyId' => $credential->razorpay_key_id,
+            'razorpayKeyId' => $config->razorpay_key_id,
         ]);
     }
 
@@ -117,15 +124,15 @@ class FormSubmissionController extends Controller
      */
     public function paymentCallback(Request $request, string $uuid)
     {
-        $submission = FormSubmission::where('uuid', $uuid)->with('form')->firstOrFail();
+        $submission = FormSubmission::where('uuid', $uuid)->with('form.paymentConfig')->firstOrFail();
 
-        $credential = MerchantCredential::where('user_id', $submission->form->user_id)->first();
+        $config = $submission->form->paymentConfig;
 
-        if (! $credential) {
+        if (! $config) {
             abort(404);
         }
 
-        $api = new Api($credential->razorpay_key_id, $credential->razorpay_key_secret);
+        $api = new Api($config->razorpay_key_id, $config->razorpay_key_secret);
 
         $attributes = [
             'razorpay_order_id' => $request->input('razorpay_order_id'),
@@ -139,7 +146,7 @@ class FormSubmissionController extends Controller
             return view('public.payment-failed', compact('submission'));
         }
 
-        // Signature valid — also confirm the order_id matches what we created (defense in depth)
+        // Order id must match the one we created for this submission
         if ($submission->razorpay_order_id !== $attributes['razorpay_order_id']) {
             return view('public.payment-failed', compact('submission'));
         }

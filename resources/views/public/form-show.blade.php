@@ -16,13 +16,15 @@
                 <p class="text-gray-600 mb-6">{{ $form->description }}</p>
             @endif
 
-            @if ($errors->any())
+            @if ($errors->has('form'))
                 <div class="mb-4 bg-red-50 text-red-700 p-4 rounded">
-                    <ul class="list-disc list-inside">
-                        @foreach ($errors->all() as $error)
-                            <li>{{ $error }}</li>
-                        @endforeach
-                    </ul>
+                    {{ $errors->first('form') }}
+                </div>
+            @endif
+
+            @if ($errors->any() && ! $errors->has('form'))
+                <div class="mb-4 bg-red-50 text-red-700 p-3 rounded text-sm">
+                    Please correct the highlighted fields below.
                 </div>
             @endif
 
@@ -69,6 +71,10 @@
                                 </label>
                             @endforeach
                         @endif
+
+                        @error('fields.' . $field->id)
+                            <p class="text-red-600 text-sm mt-1">{{ $message }}</p>
+                        @enderror
                     </div>
                 @endforeach
 
@@ -80,7 +86,9 @@
                 @else
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Amount to pay (₹)</label>
-                        <input type="number" name="custom_amount" step="0.01" min="1" value="{{ old('custom_amount') }}" required class="block w-full border-gray-300 rounded-md shadow-sm">
+                                                @error('custom_amount')
+                            <p class="text-red-600 text-sm mt-1">{{ $message }}</p>
+                        @enderror
                     </div>
                 @endif
 

@@ -20,6 +20,16 @@
                     </div>
                 @endif
 
+                @if ($errors->any())
+                    <div class="mb-4 bg-red-50 text-red-700 p-4 rounded">
+                        <ul class="list-disc list-inside">
+                            @foreach ($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead>
                         <tr>
@@ -44,21 +54,31 @@
                                     @endif
                                 </td>
                                 <td class="px-4 py-2">
-                                    <form method="POST" action="{{ route('admin.forms.toggle-status', $form) }}">
-                                        @csrf
-                                        @method('PATCH')
-                                        <button type="submit"
-                                            class="{{ $form->is_active ? 'text-green-600' : 'text-red-600' }} underline text-sm">
-                                            {{ $form->is_active ? 'Active' : 'Inactive' }}
-                                        </button>
-                                    </form>
+                                    @if ($form->is_complete)
+                                        <form method="POST" action="{{ route('admin.forms.toggle-status', $form) }}">
+                                            @csrf
+                                            @method('PATCH')
+                                            <button type="submit"
+                                                class="{{ $form->is_active ? 'text-green-600' : 'text-red-600' }} underline text-sm">
+                                                {{ $form->is_active ? 'Active' : 'Inactive' }}
+                                            </button>
+                                        </form>
+                                    @else
+                                        <span class="text-yellow-600 text-sm">Draft (Step {{ $form->wizard_step }} of 3)</span>
+                                    @endif
                                 </td>
                                 <td class="px-4 py-2">
-                                    <a href="{{ route('form.public', $form->uuid) }}" target="_blank" class="text-blue-600 text-sm underline">View Link</a>
+                                    @if ($form->is_complete)
+                                        <a href="{{ route('form.public', $form->uuid) }}" target="_blank" class="text-blue-600 text-sm underline">View Link</a>
+                                    @else
+                                        <span class="text-gray-400 text-sm">Not live</span>
+                                    @endif
                                 </td>
                                 <td class="px-4 py-2 space-x-2">
                                     <a href="{{ route('admin.forms.edit', $form) }}"
-                                        class="text-indigo-600 text-sm underline">Edit</a>
+                                        class="text-indigo-600 text-sm underline">{{ $form->is_complete ? 'Edit' : 'Continue Setup' }}</a>
+                                    <a href="{{ route('submissions.index', $form) }}"
+                                        class="text-indigo-600 text-sm underline">Submissions</a>                                        
                                     <form method="POST" action="{{ route('admin.forms.destroy', $form) }}"
                                         class="inline"
                                         onsubmit="return confirm('Delete this form? This cannot be undone.');">

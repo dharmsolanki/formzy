@@ -2,28 +2,27 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class MerchantCredential extends Model
+class FormPaymentConfig extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
-        'user_id',
+        'form_id',
         'razorpay_key_id',
         'razorpay_key_secret',
+        'webhook_secret',
         'is_verified',
     ];
 
     protected $casts = [
         'razorpay_key_id' => 'encrypted',
         'razorpay_key_secret' => 'encrypted',
+        'webhook_secret' => 'encrypted',
         'is_verified' => 'boolean',
     ];
 
-    public function user()
+    public function form()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Form::class);
     }
 }

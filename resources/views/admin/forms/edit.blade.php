@@ -8,7 +8,13 @@
     <div class="py-12">
         <div class="max-w-3xl mx-auto sm:px-6 lg:px-8">
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+                <x-wizard-steps :current="1" />
 
+                @if ($form->is_complete && $form->is_active)
+                    <div class="mb-4 bg-yellow-50 text-yellow-800 p-4 rounded text-sm">
+                        ⚠ This form is live. Changing fields can break forms already open in customers' browsers. Set the form to Inactive first, then edit.
+                    </div>
+                @endif
                 @if ($errors->any())
                     <div class="mb-4 bg-red-50 text-red-700 p-4 rounded">
                         <ul class="list-disc list-inside">
@@ -136,7 +142,7 @@
                     </button>
 
                     <div class="flex justify-end">
-                        <x-primary-button>{{ __('Update Form') }}</x-primary-button>
+                        <x-primary-button>{{ __('Next: Payment Configuration') }}</x-primary-button>
                     </div>
                 </form>
 

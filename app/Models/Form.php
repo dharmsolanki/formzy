@@ -19,11 +19,15 @@ class Form extends Model
         'fixed_amount',
         'is_active',
         'expires_at',
+        'wizard_step',
+        'is_complete',
+        'success_message',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'expires_at' => 'datetime',
+        'is_complete' => 'boolean',
         'fixed_amount' => 'decimal:2',
     ];
 
@@ -46,5 +50,15 @@ class Form extends Model
     public function fields()
     {
         return $this->hasMany(FormField::class)->orderBy('order');
+    }
+
+    public function paymentConfig()
+    {
+        return $this->hasOne(FormPaymentConfig::class);
+    }
+
+    public function submissions()
+    {
+        return $this->hasMany(FormSubmission::class);
     }
 }
