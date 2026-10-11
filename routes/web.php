@@ -30,7 +30,7 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('ad
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     Route::resource('merchants', MerchantController::class)->except(['show', 'edit', 'update', 'destroy']);
-    Route::resource('forms', FormController::class);
+    Route::resource('forms', FormController::class)->except(['show']);
     Route::patch('forms/{form}/toggle-status', [FormController::class, 'toggleStatus'])->name('forms.toggle-status');
 
     Route::get('forms/{form}/payment', [FormController::class, 'paymentEdit'])->name('forms.payment');
