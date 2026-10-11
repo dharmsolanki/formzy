@@ -122,7 +122,7 @@ class FormController extends Controller
         if ($hasConfig && empty($newSecret)) {
             if (! empty($newKeyId) && $newKeyId !== $existing->razorpay_key_id) {
                 return back()
-                    ->withErrors(['razorpay_key_secret' => 'Key ID change ki hai to Key Secret bhi daalo.'])
+                    ->withErrors(['razorpay_key_secret' => 'If you change the Key ID, you must also enter the Key Secret.'])
                     ->withInput();
             }
 
@@ -136,7 +136,7 @@ class FormController extends Controller
 
         if (empty($newKeyId)) {
             return back()
-                ->withErrors(['razorpay_key_id' => 'Key ID required.'])
+                ->withErrors(['razorpay_key_id' => 'The Razorpay Key ID is required.'])
                 ->withInput($request->except('razorpay_key_secret'));
         }
 
