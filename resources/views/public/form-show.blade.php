@@ -1,29 +1,32 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ $form->title }}</title>
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
-</head>
-<body class="bg-gray-100 min-h-screen py-12">
-    <div class="max-w-xl mx-auto px-4">
-        <div class="bg-white shadow rounded-lg p-6">
+<x-public-layout :title="$form->title">
 
-            <h1 class="text-2xl font-bold text-gray-900 mb-2">{{ $form->title }}</h1>
+    <div class="text-center mb-6">
+        <div class="text-2xl font-bold text-gray-900 tracking-tight">
+            Form<span class="text-indigo-600">zy</span>
+        </div>
+    </div>
 
-            @if ($form->description)
-                <p class="text-gray-600 mb-6">{{ $form->description }}</p>
-            @endif
+    <x-card>
+        <h1 class="text-2xl font-bold text-gray-900">{{ $form->title }}</h1>
+
+        @if ($form->description)
+            <p class="text-gray-600 mt-2">{{ $form->description }}</p>
+        @endif
+
+        @if ($form->expires_at)
+            <p class="mt-3 inline-block bg-yellow-50 text-yellow-800 text-xs px-3 py-1 rounded-full">
+                Registration closes on {{ $form->expires_at->format('d M Y, h:i A') }}
+            </p>
+        @endif
+
+        <div class="mt-6">
 
             @if ($errors->has('form'))
-                <div class="mb-4 bg-red-50 text-red-700 p-4 rounded">
+                <div class="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
                     {{ $errors->first('form') }}
                 </div>
-            @endif
-
-            @if ($errors->any() && ! $errors->has('form'))
-                <div class="mb-4 bg-red-50 text-red-700 p-3 rounded text-sm">
+            @elseif ($errors->any())
+                <div class="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
                     Please correct the highlighted fields below.
                 </div>
             @endif
@@ -40,33 +43,42 @@
                             @endif
                         </label>
 
-                        @if ($field->type === 'text' || $field->type === 'email' || $field->type === 'number')
+                        @if (in_array($field->type, ['text', 'email', 'number']))
                             <input
                                 type="{{ $field->type }}"
                                 name="fields[{{ $field->id }}]"
                                 value="{{ old('fields.'.$field->id) }}"
                                 {{ $field->is_readonly ? 'readonly' : '' }}
                                 {{ $field->is_required ? 'required' : '' }}
-                                class="block w-full border-gray-300 rounded-md shadow-sm {{ $field->is_readonly ? 'bg-gray-100' : '' }}"
-                            >
+                                class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 {{ $field->is_readonly ? 'bg-gray-100' : '' }}">
+
                         @elseif ($field->type === 'dropdown')
-                            <select name="fields[{{ $field->id }}]" {{ $field->is_required ? 'required' : '' }} class="block w-full border-gray-300 rounded-md shadow-sm">
+                            <select name="fields[{{ $field->id }}]" {{ $field->is_required ? 'required' : '' }}
+                                class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                                 <option value="">-- Select --</option>
                                 @foreach ($field->options ?? [] as $option)
                                     <option value="{{ $option }}" {{ old('fields.'.$field->id) === $option ? 'selected' : '' }}>{{ $option }}</option>
                                 @endforeach
                             </select>
+
                         @elseif ($field->type === 'radio')
                             @foreach ($field->options ?? [] as $option)
-                                <label class="flex items-center mb-1">
-                                    <input type="radio" name="fields[{{ $field->id }}]" value="{{ $option }}" {{ old('fields.'.$field->id) === $option ? 'checked' : '' }} {{ $field->is_required ? 'required' : '' }} class="mr-2">
+                                <label class="flex items-center mb-1 text-sm text-gray-700">
+                                    <input type="radio" name="fields[{{ $field->id }}]" value="{{ $option }}"
+                                        {{ old('fields.'.$field->id) === $option ? 'checked' : '' }}
+                                        {{ $field->is_required ? 'required' : '' }}
+                                        class="mr-2 text-indigo-600 focus:ring-indigo-500">
                                     {{ $option }}
                                 </label>
                             @endforeach
+
                         @elseif ($field->type === 'checkbox')
+                            @php $oldChecked = (array) old('fields.'.$field->id, []); @endphp
                             @foreach ($field->options ?? [] as $option)
-                                <label class="flex items-center mb-1">
-                                    <input type="checkbox" name="fields[{{ $field->id }}][]" value="{{ $option }}" class="mr-2">
+                                <label class="flex items-center mb-1 text-sm text-gray-700">
+                                    <input type="checkbox" name="fields[{{ $field->id }}][]" value="{{ $option }}"
+                                        {{ in_array($option, $oldChecked, true) ? 'checked' : '' }}
+                                        class="mr-2 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
                                     {{ $option }}
                                 </label>
                             @endforeach
@@ -78,26 +90,31 @@
                     </div>
                 @endforeach
 
-                @if ($form->amount_type === 'fixed')
-                    <div class="mb-4 p-3 bg-gray-50 rounded">
-                        <span class="text-sm text-gray-600">Amount to pay:</span>
-                        <span class="font-semibold text-lg">₹{{ $form->fixed_amount }}</span>
-                    </div>
-                @else
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Amount to pay (₹)</label>
-                                                @error('custom_amount')
-                            <p class="text-red-600 text-sm mt-1">{{ $message }}</p>
-                        @enderror
-                    </div>
-                @endif
+                <div class="mt-6 pt-4 border-t border-gray-100">
+                    @if ($form->amount_type === 'fixed')
+                        <div class="flex items-center justify-between mb-4">
+                            <span class="text-sm text-gray-600">Amount to pay</span>
+                            <span class="text-xl font-semibold text-gray-900">₹{{ $form->fixed_amount }}</span>
+                        </div>
+                    @else
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Amount to pay (₹)</label>
+                            <input type="number" name="custom_amount" step="0.01" min="1"
+                                value="{{ old('custom_amount') }}" required
+                                class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            @error('custom_amount')
+                                <p class="text-red-600 text-sm mt-1">{{ $message }}</p>
+                            @enderror
+                        </div>
+                    @endif
 
-                <button type="submit" class="w-full bg-gray-800 text-white py-2 rounded-md font-medium">
-                    Proceed to Pay
-                </button>
+                    <button type="submit"
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-md font-medium">
+                        Proceed to Pay
+                    </button>
+                </div>
             </form>
-
         </div>
-    </div>
-</body>
-</html>
+    </x-card>
+
+</x-public-layout>
