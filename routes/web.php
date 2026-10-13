@@ -63,5 +63,9 @@ Route::post('/f/{uuid}', [FormSubmissionController::class, 'store'])
 Route::post('/f/{uuid}/payment-callback', [FormSubmissionController::class, 'paymentCallback'])
     ->name('form.payment.callback');
 
+Route::get('/receipt/{uuid}', [FormSubmissionController::class, 'receipt'])
+    ->middleware('throttle:30,1')
+    ->name('form.receipt');
+
 Route::post('/webhooks/razorpay/{uuid}', [RazorpayWebhookController::class, 'handle'])
     ->name('webhooks.razorpay');

@@ -39,9 +39,11 @@ class FormSubmissionController extends Controller
     {
         $form = Form::where('uuid', $uuid)->with(['fields', 'paymentConfig'])->firstOrFail();
 
-        if (! $form->is_complete
+        if (
+            ! $form->is_complete
             || ! $form->is_active
-            || ($form->expires_at && $form->expires_at->isPast())) {
+            || ($form->expires_at && $form->expires_at->isPast())
+        ) {
             return back()->withErrors(['form' => 'This form is no longer accepting responses.']);
         }
 
@@ -157,5 +159,18 @@ class FormSubmissionController extends Controller
         ]);
 
         return view('public.payment-success', compact('submission'));
+    }
+
+    /**
+     * Printable receipt. Only for paid submissions.
+     */
+    public function receipt(string $uuid)
+    {
+        $submission = FormSubmission::where('uuid', $uuid)
+            ->where('payment_status', 'paid')
+            ->with('form.user', 'form.fields')
+            ->firstOrFail();
+
+        return view('public.receipt', compact('submission'));
     }
 }

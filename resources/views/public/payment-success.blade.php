@@ -36,7 +36,12 @@
             <div class="mt-6 bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 text-sm whitespace-pre-line">{{ $submission->form->success_message }}</div>
         @endif
 
-        <p class="mt-6 text-center text-xs text-gray-400">Please save the reference above for future queries.</p>
+        <a href="{{ route('form.receipt', $submission->uuid) }}" target="_blank"
+           class="mt-6 block w-full text-center bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-md font-medium">
+            Download Receipt
+        </a>
+
+        <p class="mt-3 text-center text-xs text-gray-400">Please save the reference above for future queries.</p>
     </x-card>
 
 </x-public-layout>
