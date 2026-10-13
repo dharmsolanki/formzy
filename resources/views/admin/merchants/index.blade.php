@@ -29,6 +29,7 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
@@ -41,10 +42,14 @@
                                 <td class="px-6 py-3 text-sm">
                                     <x-badge :status="$merchant->is_active ? 'active' : 'inactive'" />
                                 </td>
+                                <td class="px-6 py-3 text-sm whitespace-nowrap">
+                                    <a href="{{ route('admin.merchants.password.edit', $merchant) }}"
+                                       class="text-indigo-600 hover:underline">Reset Password</a>
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="px-6 py-6 text-center text-gray-500">No merchants yet.</td>
+                                <td colspan="6" class="px-6 py-6 text-center text-gray-500">No merchants yet.</td>
                             </tr>
                         @endforelse
                     </tbody>

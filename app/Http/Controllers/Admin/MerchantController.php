@@ -7,6 +7,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class MerchantController extends Controller
 {
@@ -57,5 +59,38 @@ class MerchantController extends Controller
 
         return redirect()->route('admin.merchants.index')
             ->with('success', 'Merchant created successfully.');
+    }
+
+    /**
+     * Show reset password form for a merchant.
+     */
+    public function passwordEdit(User $merchant)
+    {
+        abort_unless($merchant->hasRole('merchant'), 404);
+
+        return view('admin.merchants.password', compact('merchant'));
+    }
+
+    /**
+     * Set a new password for a merchant.
+     */
+    public function passwordUpdate(Request $request, User $merchant)
+    {
+        abort_unless($merchant->hasRole('merchant'), 404);
+
+        $validated = $request->validate([
+            'password' => ['required', 'confirmed', Password::defaults()],
+        ]);
+
+        $merchant->forceFill([
+            'password' => Hash::make($validated['password']),
+            'remember_token' => Str::random(60),
+        ])->save();
+
+        // Log the merchant out of all devices (sessions are stored in DB)
+        DB::table('sessions')->where('user_id', $merchant->id)->delete();
+
+        return redirect()->route('admin.merchants.index')
+            ->with('success', 'Password updated for ' . $merchant->company_name . '.');
     }
 }

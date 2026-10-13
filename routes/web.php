@@ -30,6 +30,9 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('ad
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     Route::resource('merchants', MerchantController::class)->except(['show', 'edit', 'update', 'destroy']);
+    Route::get('merchants/{merchant}/password', [MerchantController::class, 'passwordEdit'])->name('merchants.password.edit');
+    Route::put('merchants/{merchant}/password', [MerchantController::class, 'passwordUpdate'])->name('merchants.password.update');
+    
     Route::resource('forms', FormController::class)->except(['show']);
     Route::patch('forms/{form}/toggle-status', [FormController::class, 'toggleStatus'])->name('forms.toggle-status');
 
