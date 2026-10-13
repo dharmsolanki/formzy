@@ -1,10 +1,6 @@
 <x-public-layout :title="$form->title">
 
-    <div class="text-center mb-6">
-        <div class="text-2xl font-bold text-gray-900 tracking-tight">
-            Form<span class="text-indigo-600">zy</span>
-        </div>
-    </div>
+    <x-merchant-brand :merchant="$form->user" />
 
     <x-card>
         <h1 class="text-2xl font-bold text-gray-900">{{ $form->title }}</h1>

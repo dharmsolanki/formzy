@@ -29,7 +29,7 @@ Route::get('/dashboard', function () {
 Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-    Route::resource('merchants', MerchantController::class)->except(['show', 'edit', 'update', 'destroy']);
+    Route::resource('merchants', MerchantController::class)->only(['index', 'create', 'store', 'edit', 'update']);
     Route::get('merchants/{merchant}/password', [MerchantController::class, 'passwordEdit'])->name('merchants.password.edit');
     Route::put('merchants/{merchant}/password', [MerchantController::class, 'passwordUpdate'])->name('merchants.password.update');
     

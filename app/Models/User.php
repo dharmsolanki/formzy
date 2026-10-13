@@ -26,6 +26,7 @@ class User extends Authenticatable
         'company_name',
         'phone',
         'is_active',
+        'logo_path',
     ];
 
     /**
@@ -49,5 +50,12 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function logoUrl(): ?string
+    {
+        return $this->logo_path
+            ? asset('storage/' . $this->logo_path)
+            : null;
     }
 }

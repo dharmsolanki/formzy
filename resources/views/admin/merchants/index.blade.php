@@ -35,7 +35,14 @@
                     <tbody class="divide-y divide-gray-100">
                         @forelse ($merchants as $merchant)
                             <tr class="hover:bg-gray-50">
-                                <td class="px-6 py-3 text-sm font-medium text-gray-900">{{ $merchant->company_name }}</td>
+                                <td class="px-6 py-3 text-sm font-medium text-gray-900">
+                                    <div class="flex items-center gap-3">
+                                        @if ($merchant->logoUrl())
+                                            <img src="{{ $merchant->logoUrl() }}" alt="" class="h-8 w-8 object-contain rounded border border-gray-200 bg-white">
+                                        @endif
+                                        {{ $merchant->company_name }}
+                                    </div>
+                                </td>
                                 <td class="px-6 py-3 text-sm text-gray-600">{{ $merchant->name }}</td>
                                 <td class="px-6 py-3 text-sm text-gray-600">{{ $merchant->email }}</td>
                                 <td class="px-6 py-3 text-sm text-gray-600">{{ $merchant->phone }}</td>
@@ -43,8 +50,12 @@
                                     <x-badge :status="$merchant->is_active ? 'active' : 'inactive'" />
                                 </td>
                                 <td class="px-6 py-3 text-sm whitespace-nowrap">
-                                    <a href="{{ route('admin.merchants.password.edit', $merchant) }}"
-                                       class="text-indigo-600 hover:underline">Reset Password</a>
+                                    <div class="flex items-center gap-3">
+                                        <a href="{{ route('admin.merchants.edit', $merchant) }}"
+                                           class="text-indigo-600 hover:underline">Edit</a>
+                                        <a href="{{ route('admin.merchants.password.edit', $merchant) }}"
+                                           class="text-indigo-600 hover:underline">Reset Password</a>
+                                    </div>
                                 </td>
                             </tr>
                         @empty

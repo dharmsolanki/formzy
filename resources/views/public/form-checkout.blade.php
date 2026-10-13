@@ -4,11 +4,7 @@
         <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     </x-slot>
 
-    <div class="text-center mb-6">
-        <div class="text-2xl font-bold text-gray-900 tracking-tight">
-            Form<span class="text-indigo-600">zy</span>
-        </div>
-    </div>
+    <x-merchant-brand :merchant="$form->user" />
 
     <x-card>
         <h1 class="text-xl font-semibold text-gray-900">{{ $form->title }}</h1>
@@ -41,8 +37,11 @@
                 key: @json($razorpayKeyId),
                 amount: {{ (int) round($submission->amount * 100) }},
                 currency: 'INR',
-                name: @json($form->title),
-                description: 'Payment for ' + @json($form->title),
+                name: @json($form->user->company_name),
+                description: @json($form->title),
+                @if ($form->user->logoUrl() && str_starts_with(url('/'), 'https://'))
+                image: @json($form->user->logoUrl()),
+                @endif
                 order_id: @json($razorpayOrderId),
                 handler: function (response) {
                     var f = document.createElement('form');
