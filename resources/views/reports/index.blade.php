@@ -5,19 +5,54 @@
         </h2>
     </x-slot>
 
+    @php
+        $formsForJs = $allForms->map(function ($f) {
+            return [
+                'id' => $f->id,
+                'title' => $f->title,
+                'user_id' => $f->user_id,
+                'company' => optional($f->user)->company_name,
+            ];
+        })->values()->all();
+    @endphp
+
     <div class="py-8 px-4 sm:px-6 lg:px-8">
 
         {{-- Filters --}}
         <x-card class="mb-6">
-            <form method="GET" action="{{ route('reports.index') }}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+            <form method="GET" action="{{ route('reports.index') }}"
+                  x-data="{
+                      merchant: @js((string) ($filters['merchant_id'] ?? '')),
+                      form: @js((string) ($filters['form_id'] ?? '')),
+                      forms: @js($formsForJs),
+                      get filteredForms() {
+                          return this.forms.filter(f => !this.merchant || String(f.user_id) === String(this.merchant));
+                      }
+                  }"
+                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
+
+                @if ($isAdmin)
+                    <div>
+                        <x-input-label for="merchant_id" value="Merchant" />
+                        <select name="merchant_id" id="merchant_id" x-model="merchant" @change="form = ''"
+                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            <option value="">All merchants</option>
+                            @foreach ($merchants as $m)
+                                <option value="{{ $m->id }}">{{ $m->company_name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                @endif
+
                 <div>
                     <x-input-label for="form_id" value="Form" />
-                    <select name="form_id" id="form_id"
+                    <select name="form_id" id="form_id" x-model="form"
                             class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
                         <option value="">All forms</option>
-                        @foreach ($forms as $f)
-                            <option value="{{ $f->id }}" {{ (string) ($filters['form_id'] ?? '') === (string) $f->id ? 'selected' : '' }}>{{ $f->title }}</option>
-                        @endforeach
+                        <template x-for="f in filteredForms" :key="f.id">
+                            <option :value="String(f.id)"
+                                    x-text="(!merchant && f.company) ? (f.title + ' — ' + f.company) : f.title"></option>
+                        </template>
                     </select>
                 </div>
 
@@ -84,7 +119,12 @@
                         <tbody class="divide-y divide-gray-100">
                             @forelse ($byForm as $row)
                                 <tr class="hover:bg-gray-50">
-                                    <td class="px-6 py-3 text-sm text-gray-900">{{ $row->title }}</td>
+                                    <td class="px-6 py-3 text-sm text-gray-900">
+                                        {{ $row->title }}
+                                        @if ($isAdmin && $row->company)
+                                            <div class="text-xs text-gray-500">{{ $row->company }}</div>
+                                        @endif
+                                    </td>
                                     <td class="px-6 py-3 text-sm text-gray-900">{{ $row->cnt }}</td>
                                     <td class="px-6 py-3 text-sm text-gray-900 whitespace-nowrap">₹{{ number_format($row->total, 2) }}</td>
                                 </tr>
@@ -129,27 +169,33 @@
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                            @if ($isAdmin)
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Merchant</th>
+                            @endif
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Form</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment ID</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer Data</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
                         @forelse ($submissions as $s)
                             <tr class="hover:bg-gray-50">
                                 <td class="px-6 py-3 text-sm text-gray-600 whitespace-nowrap">{{ $s->created_at->format('d M Y, h:i A') }}</td>
+                                @if ($isAdmin)
+                                    <td class="px-6 py-3 text-sm text-gray-600">{{ $s->form->user->company_name }}</td>
+                                @endif
                                 <td class="px-6 py-3 text-sm text-gray-900">{{ $s->form->title }}</td>
                                 <td class="px-6 py-3 text-sm text-gray-900 whitespace-nowrap">₹{{ $s->amount }}</td>
                                 <td class="px-6 py-3 text-sm"><x-badge :status="$s->payment_status" /></td>
                                 <td class="px-6 py-3 text-xs font-mono text-gray-600">{{ $s->razorpay_payment_id }}</td>
                                 <td class="px-6 py-3 text-sm">
-                                    <a href="{{ route('submissions.index', $s->form_id) }}" class="text-indigo-600 hover:underline">View</a>
+                                    <a href="{{ route('submissions.index', $s->form_id) }}" class="text-indigo-600 hover:underline">Open list</a>
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="6" class="px-6 py-6 text-center text-gray-500">No transactions found.</td></tr>
+                            <tr><td colspan="{{ $isAdmin ? 7 : 6 }}" class="px-6 py-6 text-center text-gray-500">No transactions found.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

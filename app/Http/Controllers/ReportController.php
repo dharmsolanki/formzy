@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Form;
 use App\Models\FormSubmission;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -11,16 +12,41 @@ class ReportController extends Controller
 {
     public function index(Request $request)
     {
+        $isAdmin = auth()->user()->hasRole('admin');
+
         $filters = $request->validate([
-            'form_id' => ['nullable', 'integer'],
-            'status'  => ['nullable', 'in:paid,pending,failed'],
-            'from'    => ['nullable', 'date'],
-            'to'      => ['nullable', 'date', 'after_or_equal:from'],
+            'merchant_id' => ['nullable', 'integer'],
+            'form_id'     => ['nullable', 'integer'],
+            'status'      => ['nullable', 'in:paid,pending,failed'],
+            'from'        => ['nullable', 'date'],
+            'to'          => ['nullable', 'date', 'after_or_equal:from'],
         ]);
 
-        $forms = $this->scopedForms()->orderBy('title')->get(['id', 'title']);
+        // Merchant filter is for Admin only
+        if (! $isAdmin) {
+            $filters['merchant_id'] = null;
+        }
 
-        // A merchant must not filter by someone else's form
+        $merchants = $isAdmin
+            ? User::role('merchant')->orderBy('company_name')->get(['id', 'company_name'])
+            : collect();
+
+        if (! empty($filters['merchant_id'])) {
+            abort_unless($merchants->contains('id', (int) $filters['merchant_id']), 404);
+        }
+
+        // All forms this user may see (Admin: all, Merchant: own)
+        $allForms = $this->scopedForms()
+            ->with('user:id,company_name')
+            ->orderBy('title')
+            ->get(['id', 'title', 'user_id']);
+
+        // Forms after the merchant filter
+        $forms = empty($filters['merchant_id'])
+            ? $allForms
+            : $allForms->where('user_id', (int) $filters['merchant_id'])->values();
+
+        // Form must belong to the allowed set (blocks tampered IDs)
         if (! empty($filters['form_id'])) {
             abort_unless($forms->contains('id', (int) $filters['form_id']), 404);
         }
@@ -53,7 +79,9 @@ class ReportController extends Controller
             ->groupBy('form_id')
             ->get()
             ->map(function ($row) use ($forms) {
-                $row->title = optional($forms->firstWhere('id', $row->form_id))->title;
+                $form = $forms->firstWhere('id', $row->form_id);
+                $row->title = optional($form)->title;
+                $row->company = optional(optional($form)->user)->company_name;
                 return $row;
             });
 
@@ -64,9 +92,11 @@ class ReportController extends Controller
             ->limit(31)
             ->get();
 
-        $submissions = (clone $query)->with('form')->latest()->paginate(20)->withQueryString();
+        $submissions = (clone $query)->with('form.user')->latest()->paginate(20)->withQueryString();
 
-        return view('reports.index', compact('filters', 'forms', 'summary', 'byForm', 'byDay', 'submissions'));
+        return view('reports.index', compact(
+            'isAdmin', 'filters', 'merchants', 'allForms', 'summary', 'byForm', 'byDay', 'submissions'
+        ));
     }
 
     /**
