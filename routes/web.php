@@ -9,6 +9,7 @@ use App\Http\Controllers\RazorpayWebhookController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Merchant\DashboardController as MerchantDashboardController;
 use App\Http\Controllers\SubmissionController;
+use App\Http\Controllers\ReportController;
 
 Route::get('/', function () {
     if (auth()->check()) {
@@ -55,6 +56,7 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'verified', 'role:merchant|admin'])->group(function () {
     Route::get('/forms/{form}/submissions', [SubmissionController::class, 'index'])->name('submissions.index');
     Route::get('/forms/{form}/submissions/export', [SubmissionController::class, 'export'])->name('submissions.export');
+    Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
 });
 
 require __DIR__ . '/auth.php';

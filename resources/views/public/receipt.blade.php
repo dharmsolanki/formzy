@@ -15,9 +15,15 @@
     <div class="bg-white border border-gray-200 rounded-xl p-8 print:border-0 print:p-0">
 
         <div class="flex justify-between items-start border-b border-gray-200 pb-4">
-            <div>
-                <h1 class="text-xl font-bold text-gray-900">Payment Receipt</h1>
-                <p class="text-sm text-gray-500 mt-1">{{ $submission->form->user->company_name }}</p>
+            <div class="flex items-center gap-4">
+                @if ($submission->form->user->logoUrl())
+                    <img src="{{ $submission->form->user->logoUrl() }}" alt=""
+                         class="h-14 w-auto max-w-[140px] object-contain">
+                @endif
+                <div>
+                    <h1 class="text-xl font-bold text-gray-900">Payment Receipt</h1>
+                    <p class="text-sm text-gray-500 mt-1">{{ $submission->form->user->company_name }}</p>
+                </div>
             </div>
             <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">PAID</span>
         </div>

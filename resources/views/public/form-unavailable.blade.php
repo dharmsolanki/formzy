@@ -1,10 +1,8 @@
 <x-public-layout title="Form Unavailable">
 
-    <div class="text-center mb-6">
-        <div class="text-2xl font-bold text-gray-900 tracking-tight">
-            Form<span class="text-indigo-600">zy</span>
-        </div>
-    </div>
+    @isset($merchant)
+        <x-merchant-brand :merchant="$merchant" />
+    @endisset
 
     <x-card>
         <div class="text-center">

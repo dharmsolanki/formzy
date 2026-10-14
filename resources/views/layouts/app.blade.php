@@ -25,6 +25,7 @@
                 : [
                     ['label' => 'Dashboard', 'route' => 'merchant.dashboard', 'active' => 'merchant.dashboard', 'icon' => 'M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10'],
                 ];
+            $menu[] = ['label' => 'Reports', 'route' => 'reports.index', 'active' => 'reports.*', 'icon' => 'M4 20h16M7 16V9m5 7V4m5 12v-5'];
         @endphp
 
         <div x-data="{ sidebar: false }" class="min-h-screen">

@@ -1,10 +1,6 @@
 <x-public-layout title="Payment Failed">
 
-    <div class="text-center mb-6">
-        <div class="text-2xl font-bold text-gray-900 tracking-tight">
-            Form<span class="text-indigo-600">zy</span>
-        </div>
-    </div>
+    <x-merchant-brand :merchant="$submission->form->user" />
 
     <x-card>
         <div class="text-center">

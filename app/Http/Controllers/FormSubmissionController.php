@@ -10,23 +10,29 @@ use Razorpay\Api\Api;
 
 class FormSubmissionController extends Controller
 {
-    /**
-     * Show the public form.
-     */
     public function show(string $uuid)
     {
-        $form = Form::where('uuid', $uuid)->with('fields')->firstOrFail();
+        $form = Form::where('uuid', $uuid)->with(['fields', 'user'])->firstOrFail();
 
         if (! $form->is_complete) {
-            return view('public.form-unavailable', ['message' => 'This form is not available yet.']);
+            return view('public.form-unavailable', [
+                'message' => 'This form is not available yet.',
+                'merchant' => $form->user,
+            ]);
         }
 
-        if (! $form->is_active) {
-            return view('public.form-unavailable', ['message' => 'This form is no longer accepting responses.']);
+        if (! $form->is_active || ! $form->user->is_active) {
+            return view('public.form-unavailable', [
+                'message' => 'This form is no longer accepting responses.',
+                'merchant' => $form->user,
+            ]);
         }
 
         if ($form->expires_at && $form->expires_at->isPast()) {
-            return view('public.form-unavailable', ['message' => 'Registration for this form has closed.']);
+            return view('public.form-unavailable', [
+                'message' => 'Registration for this form has closed.',
+                'merchant' => $form->user,
+            ]);
         }
 
         return view('public.form-show', compact('form'));
@@ -37,11 +43,12 @@ class FormSubmissionController extends Controller
      */
     public function store(Request $request, string $uuid)
     {
-        $form = Form::where('uuid', $uuid)->with(['fields', 'paymentConfig'])->firstOrFail();
+        $form = Form::where('uuid', $uuid)->with(['fields', 'paymentConfig', 'user'])->firstOrFail();
 
         if (
             ! $form->is_complete
             || ! $form->is_active
+            || ! $form->user->is_active
             || ($form->expires_at && $form->expires_at->isPast())
         ) {
             return back()->withErrors(['form' => 'This form is no longer accepting responses.']);
