@@ -21,24 +21,20 @@
         {{-- Filters --}}
         <x-card class="mb-6">
             <form method="GET" action="{{ route('reports.index') }}"
-                  x-data="{
-                      merchant: @js((string) ($filters['merchant_id'] ?? '')),
-                      form: @js((string) ($filters['form_id'] ?? '')),
+                  x-data="reportFilters({
                       forms: @js($formsForJs),
-                      get filteredForms() {
-                          return this.forms.filter(f => !this.merchant || String(f.user_id) === String(this.merchant));
-                      }
-                  }"
+                      merchant: @js((string) ($filters['merchant_id'] ?? '')),
+                      form: @js((string) ($filters['form_id'] ?? ''))
+                  })"
                   class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
 
                 @if ($isAdmin)
                     <div>
                         <x-input-label for="merchant_id" value="Merchant" />
-                        <select name="merchant_id" id="merchant_id" x-model="merchant" @change="form = ''"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        <select name="merchant_id" id="merchant_id" x-ref="merchant" class="searchable mt-1 block w-full">
                             <option value="">All merchants</option>
                             @foreach ($merchants as $m)
-                                <option value="{{ $m->id }}">{{ $m->company_name }}</option>
+                                <option value="{{ $m->id }}" {{ (string) ($filters['merchant_id'] ?? '') === (string) $m->id ? 'selected' : '' }}>{{ $m->company_name }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -46,14 +42,7 @@
 
                 <div>
                     <x-input-label for="form_id" value="Form" />
-                    <select name="form_id" id="form_id" x-model="form"
-                            class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
-                        <option value="">All forms</option>
-                        <template x-for="f in filteredForms" :key="f.id">
-                            <option :value="String(f.id)"
-                                    x-text="(!merchant && f.company) ? (f.title + ' — ' + f.company) : f.title"></option>
-                        </template>
-                    </select>
+                    <select name="form_id" id="form_id" x-ref="form" class="mt-1 block w-full"></select>
                 </div>
 
                 <div>
@@ -206,4 +195,47 @@
             {{ $submissions->links() }}
         </div>
     </div>
+    <script>
+        function reportFilters(cfg) {
+            return {
+                forms: cfg.forms,
+                merchant: cfg.merchant,
+                formTs: null,
+
+                options() {
+                    const list = this.forms
+                        .filter(f => !this.merchant || String(f.user_id) === String(this.merchant))
+                        .map(f => ({
+                            id: String(f.id),
+                            label: (!this.merchant && f.company) ? (f.title + ' — ' + f.company) : f.title,
+                        }));
+
+                    return [{ id: '', label: 'All forms' }, ...list];
+                },
+
+                init() {
+                    this.formTs = new TomSelect(this.$refs.form, {
+                        allowEmptyOption: true,
+                        maxOptions: null,
+                        create: false,
+                        valueField: 'id',
+                        labelField: 'label',
+                        searchField: ['label'],
+                        options: this.options(),
+                        items: [String(cfg.form || '')],
+                    });
+
+                    if (this.$refs.merchant) {
+                        this.$refs.merchant.addEventListener('change', (e) => {
+                            this.merchant = e.target.value;
+                            this.formTs.clear(true);
+                            this.formTs.clearOptions();
+                            this.formTs.addOptions(this.options());
+                            this.formTs.setValue('', true);
+                        });
+                    }
+                },
+            };
+        }
+    </script>
 </x-app-layout>

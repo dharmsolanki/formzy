@@ -43,7 +43,7 @@
                         <div>
                             <x-input-label for="user_id" value="Merchant" />
                             <select name="user_id" id="user_id" required
-                                    class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                    class="searchable mt-1 block w-full">
                                 <option value="">-- Select Merchant --</option>
                                 @foreach ($merchants as $merchant)
                                     <option value="{{ $merchant->id }}" {{ old('user_id') == $merchant->id ? 'selected' : '' }}>
