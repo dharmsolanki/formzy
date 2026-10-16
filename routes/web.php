@@ -8,7 +8,7 @@ use App\Http\Controllers\FormSubmissionController;
 use App\Http\Controllers\RazorpayWebhookController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Merchant\DashboardController as MerchantDashboardController;
-use App\Http\Controllers\SubmissionController;
+use App\Http\Controllers\Merchant\FormController as MerchantFormController;
 use App\Http\Controllers\ReportController;
 
 Route::get('/', function () {
@@ -33,6 +33,8 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('ad
     Route::resource('merchants', MerchantController::class)->only(['index', 'create', 'store', 'edit', 'update']);
     Route::get('merchants/{merchant}/password', [MerchantController::class, 'passwordEdit'])->name('merchants.password.edit');
     Route::put('merchants/{merchant}/password', [MerchantController::class, 'passwordUpdate'])->name('merchants.password.update');
+
+    Route::get('merchants/{merchant}/forms', [FormController::class, 'byMerchant'])->name('merchants.forms');
     
     Route::resource('forms', FormController::class)->except(['show']);
     Route::patch('forms/{form}/toggle-status', [FormController::class, 'toggleStatus'])->name('forms.toggle-status');
@@ -45,6 +47,7 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('ad
 
 Route::middleware(['auth', 'verified', 'role:merchant|admin'])->prefix('merchant')->name('merchant.')->group(function () {
     Route::get('/dashboard', [MerchantDashboardController::class, 'index'])->name('dashboard');
+    Route::get('/forms', [MerchantFormController::class, 'index'])->name('forms.index');
 });
 
 Route::middleware('auth')->group(function () {
@@ -54,9 +57,8 @@ Route::middleware('auth')->group(function () {
 });
 
 Route::middleware(['auth', 'verified', 'role:merchant|admin'])->group(function () {
-    Route::get('/forms/{form}/submissions', [SubmissionController::class, 'index'])->name('submissions.index');
-    Route::get('/forms/{form}/submissions/export', [SubmissionController::class, 'export'])->name('submissions.export');
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+    Route::get('/reports/export', [ReportController::class, 'export'])->middleware('throttle:10,1')->name('reports.export');
 });
 
 require __DIR__ . '/auth.php';

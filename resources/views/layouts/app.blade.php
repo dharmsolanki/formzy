@@ -16,16 +16,40 @@
         @php
             $isAdmin = auth()->user()->hasRole('admin');
 
-            $menu = $isAdmin
-                ? [
-                    ['label' => 'Dashboard', 'route' => 'admin.dashboard', 'active' => 'admin.dashboard', 'icon' => 'M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10'],
-                    ['label' => 'Merchants', 'route' => 'admin.merchants.index', 'active' => 'admin.merchants.*', 'icon' => 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-4.13a4 4 0 110-8 4 4 0 010 8z'],
-                    ['label' => 'Forms', 'route' => 'admin.forms.index', 'active' => 'admin.forms.*', 'icon' => 'M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v14l-4-2-3 2-3-2-4 2V6a2 2 0 012-2z'],
-                ]
-                : [
-                    ['label' => 'Dashboard', 'route' => 'merchant.dashboard', 'active' => 'merchant.dashboard', 'icon' => 'M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10'],
-                ];
-            $menu[] = ['label' => 'Reports', 'route' => 'reports.index', 'active' => 'reports.*', 'icon' => 'M4 20h16M7 16V9m5 7V4m5 12v-5'];
+            // Each item lists the roles allowed to see it.
+            // Later, swap 'roles' for a 'permission' key and filter with can().
+            $items = [
+                [
+                    'label' => 'Dashboard',
+                    'route' => $isAdmin ? 'admin.dashboard' : 'merchant.dashboard',
+                    'active' => $isAdmin ? 'admin.dashboard' : 'merchant.dashboard',
+                    'roles' => ['admin', 'merchant'],
+                    'icon' => 'M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10',
+                ],
+                [
+                    'label' => 'Merchants',
+                    'route' => 'admin.merchants.index',
+                    'active' => 'admin.merchants.*',
+                    'roles' => ['admin'],
+                    'icon' => 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-4.13a4 4 0 110-8 4 4 0 010 8z',
+                ],
+                [
+                    'label' => 'Forms',
+                    'route' => $isAdmin ? 'admin.forms.index' : 'merchant.forms.index',
+                    'active' => $isAdmin ? 'admin.forms.*' : 'merchant.forms.*',
+                    'roles' => ['admin', 'merchant'],
+                    'icon' => 'M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v14l-4-2-3 2-3-2-4 2V6a2 2 0 012-2z',
+                ],
+                [
+                    'label' => 'Reports',
+                    'route' => 'reports.index',
+                    'active' => 'reports.*',
+                    'roles' => ['admin', 'merchant'],
+                    'icon' => 'M4 20h16M7 16V9m5 7V4m5 12v-5',
+                ],
+            ];
+
+            $menu = array_values(array_filter($items, fn ($item) => auth()->user()->hasAnyRole($item['roles'])));
         @endphp
 
         <div x-data="{ sidebar: false }" class="min-h-screen">

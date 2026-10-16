@@ -22,6 +22,7 @@
         <x-card class="mb-6">
             <form method="GET" action="{{ route('reports.index') }}"
                   x-data="reportFilters({
+                      isAdmin: @js($isAdmin),
                       forms: @js($formsForJs),
                       merchant: @js((string) ($filters['merchant_id'] ?? '')),
                       form: @js((string) ($filters['form_id'] ?? ''))
@@ -152,7 +153,18 @@
         </div>
 
         {{-- Detailed list --}}
+        @unless ($selectedForm)
+            <p class="mb-2 text-xs text-gray-500">
+                Select {{ $isAdmin ? 'a merchant and a form' : 'a form' }} to see customer details in the table and in the CSV export.
+            </p>
+        @endunless
         <x-card title="Transactions">
+            <x-slot name="action">
+                <a href="{{ route('reports.export', request()->query()) }}"
+                   class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap">
+                    Export CSV
+                </a>
+            </x-slot>
             <div class="overflow-x-auto -mx-6 -my-6">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
@@ -165,7 +177,11 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment ID</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer Data</th>
+                            @if ($selectedForm)
+                                @foreach ($selectedForm->fields as $field)
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">{{ $field->label }}</th>
+                                @endforeach
+                            @endif
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
@@ -179,12 +195,18 @@
                                 <td class="px-6 py-3 text-sm text-gray-900 whitespace-nowrap">₹{{ $s->amount }}</td>
                                 <td class="px-6 py-3 text-sm"><x-badge :status="$s->payment_status" /></td>
                                 <td class="px-6 py-3 text-xs font-mono text-gray-600">{{ $s->razorpay_payment_id }}</td>
-                                <td class="px-6 py-3 text-sm">
-                                    <a href="{{ route('submissions.index', $s->form_id) }}" class="text-indigo-600 hover:underline">Open list</a>
-                                </td>
+                                @if ($selectedForm)
+                                    @foreach ($selectedForm->fields as $field)
+                                        @php
+                                            $value = $s->data[$field->label] ?? '';
+                                            $value = is_array($value) ? implode(', ', $value) : $value;
+                                        @endphp
+                                        <td class="px-6 py-3 text-sm text-gray-900">{{ $value }}</td>
+                                    @endforeach
+                                @endif
                             </tr>
                         @empty
-                            <tr><td colspan="{{ $isAdmin ? 7 : 6 }}" class="px-6 py-6 text-center text-gray-500">No transactions found.</td></tr>
+                            <tr><td colspan="{{ ($isAdmin ? 6 : 5) + ($selectedForm ? $selectedForm->fields->count() : 0) }}" class="px-6 py-6 text-center text-gray-500">No transactions found.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -203,14 +225,31 @@
                 formTs: null,
 
                 options() {
+                    // Admin must pick a merchant first
+                    if (cfg.isAdmin && !this.merchant) {
+                        return [];
+                    }
+
                     const list = this.forms
-                        .filter(f => !this.merchant || String(f.user_id) === String(this.merchant))
-                        .map(f => ({
-                            id: String(f.id),
-                            label: (!this.merchant && f.company) ? (f.title + ' — ' + f.company) : f.title,
-                        }));
+                        .filter(f => !cfg.isAdmin || String(f.user_id) === String(this.merchant))
+                        .map(f => ({ id: String(f.id), label: f.title }));
 
                     return [{ id: '', label: 'All forms' }, ...list];
+                },
+
+                refresh(selected) {
+                    const opts = this.options();
+
+                    this.formTs.clear(true);
+                    this.formTs.clearOptions();
+                    this.formTs.addOptions(opts);
+
+                    if (opts.length) {
+                        this.formTs.enable();
+                        this.formTs.setValue(selected ?? '', true);
+                    } else {
+                        this.formTs.disable();
+                    }
                 },
 
                 init() {
@@ -221,17 +260,15 @@
                         valueField: 'id',
                         labelField: 'label',
                         searchField: ['label'],
-                        options: this.options(),
-                        items: [String(cfg.form || '')],
+                        placeholder: cfg.isAdmin ? 'Select merchant first' : 'All forms',
                     });
+
+                    this.refresh(String(cfg.form || ''));
 
                     if (this.$refs.merchant) {
                         this.$refs.merchant.addEventListener('change', (e) => {
                             this.merchant = e.target.value;
-                            this.formTs.clear(true);
-                            this.formTs.clearOptions();
-                            this.formTs.addOptions(this.options());
-                            this.formTs.setValue('', true);
+                            this.refresh('');
                         });
                     }
                 },

@@ -14,11 +14,60 @@ use Illuminate\Support\Facades\Http;
 
 class FormController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $forms = Form::with('user')->latest()->paginate(15);
+        $filters = $request->validate([
+            'merchant_id' => ['nullable', 'integer'],
+            'form_id'     => ['nullable', 'integer'],
+            'q'           => ['nullable', 'string', 'max:100'],
+            'status'      => ['nullable', 'in:live,draft,inactive'],
+        ]);
 
-        return view('admin.forms.index', compact('forms'));
+        $merchants = User::role('merchant')->orderBy('company_name')->get(['id', 'company_name']);
+
+        if (! empty($filters['merchant_id'])) {
+            abort_unless($merchants->contains('id', (int) $filters['merchant_id']), 404);
+        }
+
+        // Form filter works only after a merchant is chosen
+        if (empty($filters['merchant_id'])) {
+            $filters['form_id'] = null;
+        }
+
+        $query = Form::with('user');
+
+        if (! empty($filters['merchant_id'])) {
+            $query->where('user_id', $filters['merchant_id']);
+        }
+
+        if (! empty($filters['form_id'])) {
+            abort_unless(
+                Form::where('id', $filters['form_id'])->where('user_id', $filters['merchant_id'])->exists(),
+                404
+            );
+            $query->where('id', $filters['form_id']);
+        }
+
+        if (! empty($filters['q'])) {
+            $term = '%' . addcslashes($filters['q'], '%_\\') . '%';
+            $query->where('title', 'like', $term);
+        }
+
+        switch ($filters['status'] ?? '') {
+            case 'live':
+                $query->where('is_complete', true)->where('is_active', true);
+                break;
+            case 'draft':
+                $query->where('is_complete', false);
+                break;
+            case 'inactive':
+                $query->where('is_complete', true)->where('is_active', false);
+                break;
+        }
+
+        $forms = $query->latest()->paginate(15)->withQueryString();
+
+        return view('admin.forms.index', compact('forms', 'filters', 'merchants'));
     }
 
     /* ---------- STEP 1: Basic info + fields ---------- */
@@ -285,5 +334,17 @@ class FormController extends Controller
                 'order' => $index,
             ]);
         }
+    }
+
+    /**
+     * JSON list of one merchant's forms (for the dependent dropdown).
+     */
+    public function byMerchant(User $merchant)
+    {
+        abort_unless($merchant->hasRole('merchant'), 404);
+
+        return response()->json(
+            Form::where('user_id', $merchant->id)->orderBy('title')->get(['id', 'title'])
+        );
     }
 }

@@ -7,64 +7,17 @@ use App\Models\FormSubmission;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
     public function index(Request $request)
     {
-        $isAdmin = auth()->user()->hasRole('admin');
+        [$isAdmin, $filters, $merchants, $allForms, $forms, $query] = $this->resolve($request);
 
-        $filters = $request->validate([
-            'merchant_id' => ['nullable', 'integer'],
-            'form_id'     => ['nullable', 'integer'],
-            'status'      => ['nullable', 'in:paid,pending,failed'],
-            'from'        => ['nullable', 'date'],
-            'to'          => ['nullable', 'date', 'after_or_equal:from'],
-        ]);
-
-        // Merchant filter is for Admin only
-        if (! $isAdmin) {
-            $filters['merchant_id'] = null;
-        }
-
-        $merchants = $isAdmin
-            ? User::role('merchant')->orderBy('company_name')->get(['id', 'company_name'])
-            : collect();
-
-        if (! empty($filters['merchant_id'])) {
-            abort_unless($merchants->contains('id', (int) $filters['merchant_id']), 404);
-        }
-
-        // All forms this user may see (Admin: all, Merchant: own)
-        $allForms = $this->scopedForms()
-            ->with('user:id,company_name')
-            ->orderBy('title')
-            ->get(['id', 'title', 'user_id']);
-
-        // Forms after the merchant filter
-        $forms = empty($filters['merchant_id'])
-            ? $allForms
-            : $allForms->where('user_id', (int) $filters['merchant_id'])->values();
-
-        // Form must belong to the allowed set (blocks tampered IDs)
-        if (! empty($filters['form_id'])) {
-            abort_unless($forms->contains('id', (int) $filters['form_id']), 404);
-        }
-
-        $query = FormSubmission::query()->whereIn('form_id', $forms->pluck('id'));
-
-        if (! empty($filters['form_id'])) {
-            $query->where('form_id', $filters['form_id']);
-        }
-        if (! empty($filters['status'])) {
-            $query->where('payment_status', $filters['status']);
-        }
-        if (! empty($filters['from'])) {
-            $query->whereDate('created_at', '>=', $filters['from']);
-        }
-        if (! empty($filters['to'])) {
-            $query->whereDate('created_at', '<=', $filters['to']);
-        }
+        $selectedForm = ! empty($filters['form_id'])
+            ? Form::with('fields')->find($filters['form_id'])
+            : null;
 
         $summary = (clone $query)->selectRaw("
             COUNT(*) AS total,
@@ -95,13 +48,126 @@ class ReportController extends Controller
         $submissions = (clone $query)->with('form.user')->latest()->paginate(20)->withQueryString();
 
         return view('reports.index', compact(
-            'isAdmin', 'filters', 'merchants', 'allForms', 'summary', 'byForm', 'byDay', 'submissions'
+            'isAdmin', 'filters', 'merchants', 'allForms', 'selectedForm',
+            'summary', 'byForm', 'byDay', 'submissions'
         ));
     }
 
+    public function export(Request $request): StreamedResponse
+    {
+        [$isAdmin, $filters, , , , $query] = $this->resolve($request);
+
+        $selectedForm = ! empty($filters['form_id'])
+            ? Form::with('fields')->find($filters['form_id'])
+            : null;
+
+        $labels = $selectedForm ? $selectedForm->fields->pluck('label')->all() : [];
+
+        $head = ['Date'];
+        if ($isAdmin) {
+            $head[] = 'Merchant';
+        }
+        $head = array_merge($head, ['Form', 'Amount', 'Status', 'Payment ID'], $labels);
+
+        $filename = 'report-' . now()->format('Ymd-His') . '.csv';
+
+        return response()->streamDownload(function () use ($query, $head, $labels, $isAdmin) {
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+
+            fputcsv($out, $head);
+
+            $query->with('form.user')->chunkByIdDesc(200, function ($rows) use ($out, $labels, $isAdmin) {
+                foreach ($rows as $s) {
+                    $line = [$s->created_at->format('Y-m-d H:i:s')];
+
+                    if ($isAdmin) {
+                        $line[] = $this->cell($s->form->user->company_name);
+                    }
+
+                    $line[] = $this->cell($s->form->title);
+                    $line[] = $s->amount;
+                    $line[] = $s->payment_status;
+                    $line[] = $this->cell($s->razorpay_payment_id);
+
+                    foreach ($labels as $label) {
+                        $value = $s->data[$label] ?? '';
+                        $value = is_array($value) ? implode(', ', $value) : (string) $value;
+                        $line[] = $this->cell($value);
+                    }
+
+                    fputcsv($out, $line);
+                }
+            });
+
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
     /**
-     * Admin sees all forms. Merchant only their own.
+     * Validate filters and build the allowed submissions query.
+     * Admin sees everything, merchant only their own forms.
      */
+    private function resolve(Request $request): array
+    {
+        $isAdmin = auth()->user()->hasRole('admin');
+
+        $filters = $request->validate([
+            'merchant_id' => ['nullable', 'integer'],
+            'form_id'     => ['nullable', 'integer'],
+            'status'      => ['nullable', 'in:paid,pending,failed'],
+            'from'        => ['nullable', 'date'],
+            'to'          => ['nullable', 'date', 'after_or_equal:from'],
+        ]);
+
+        if (! $isAdmin) {
+            $filters['merchant_id'] = null;
+        }
+
+        // Admin: form filter works only after a merchant is chosen
+        if ($isAdmin && empty($filters['merchant_id'])) {
+            $filters['form_id'] = null;
+        }
+
+        $merchants = $isAdmin
+            ? User::role('merchant')->orderBy('company_name')->get(['id', 'company_name'])
+            : collect();
+
+        if (! empty($filters['merchant_id'])) {
+            abort_unless($merchants->contains('id', (int) $filters['merchant_id']), 404);
+        }
+
+        $allForms = $this->scopedForms()
+            ->with('user:id,company_name')
+            ->orderBy('title')
+            ->get(['id', 'title', 'user_id']);
+
+        $forms = empty($filters['merchant_id'])
+            ? $allForms
+            : $allForms->where('user_id', (int) $filters['merchant_id'])->values();
+
+        if (! empty($filters['form_id'])) {
+            abort_unless($forms->contains('id', (int) $filters['form_id']), 404);
+        }
+
+        $query = FormSubmission::query()->whereIn('form_id', $forms->pluck('id'));
+
+        if (! empty($filters['form_id'])) {
+            $query->where('form_id', $filters['form_id']);
+        }
+        if (! empty($filters['status'])) {
+            $query->where('payment_status', $filters['status']);
+        }
+        if (! empty($filters['from'])) {
+            $query->whereDate('created_at', '>=', $filters['from']);
+        }
+        if (! empty($filters['to'])) {
+            $query->whereDate('created_at', '<=', $filters['to']);
+        }
+
+        return [$isAdmin, $filters, $merchants, $allForms, $forms, $query];
+    }
+
     private function scopedForms()
     {
         $query = Form::query();
@@ -111,5 +177,19 @@ class ReportController extends Controller
         }
 
         return $query;
+    }
+
+    /**
+     * Stop CSV formula injection (cells starting with = + - @).
+     */
+    private function cell(?string $value): string
+    {
+        $value = (string) $value;
+
+        if ($value !== '' && in_array($value[0], ['=', '+', '-', '@'], true)) {
+            return "'" . $value;
+        }
+
+        return $value;
     }
 }

@@ -17,11 +17,35 @@ class MerchantController extends Controller
     /**
      * List all merchants.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $merchants = User::role('merchant')->latest()->paginate(15);
+        $filters = $request->validate([
+            'q'      => ['nullable', 'string', 'max:100'],
+            'status' => ['nullable', 'in:active,inactive'],
+        ]);
 
-        return view('admin.merchants.index', compact('merchants'));
+        $query = User::role('merchant');
+
+        if (! empty($filters['q'])) {
+            $term = '%' . addcslashes($filters['q'], '%_\\') . '%';
+
+            $query->where(function ($q) use ($term) {
+                $q->where('name', 'like', $term)
+                    ->orWhere('company_name', 'like', $term)
+                    ->orWhere('email', 'like', $term)
+                    ->orWhere('phone', 'like', $term);
+            });
+        }
+
+        if (($filters['status'] ?? '') === 'active') {
+            $query->where('is_active', true);
+        } elseif (($filters['status'] ?? '') === 'inactive') {
+            $query->where('is_active', false);
+        }
+
+        $merchants = $query->latest()->paginate(15)->withQueryString();
+
+        return view('admin.merchants.index', compact('merchants', 'filters'));
     }
 
     /**
