@@ -14,42 +14,74 @@
     </head>
     <body class="font-sans antialiased bg-gray-100">
         @php
-            $isAdmin = auth()->user()->hasRole('admin');
+            $user = auth()->user();
+            $isAdmin = $user->hasRole('admin');
 
-            // Each item lists the roles allowed to see it.
+            // Each item (and child) lists the roles allowed to see it.
             // Later, swap 'roles' for a 'permission' key and filter with can().
             $items = [
                 [
                     'label' => 'Dashboard',
                     'route' => $isAdmin ? 'admin.dashboard' : 'merchant.dashboard',
-                    'active' => $isAdmin ? 'admin.dashboard' : 'merchant.dashboard',
+                    'active' => [$isAdmin ? 'admin.dashboard' : 'merchant.dashboard'],
                     'roles' => ['admin', 'merchant'],
                     'icon' => 'M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10',
                 ],
                 [
                     'label' => 'Merchants',
                     'route' => 'admin.merchants.index',
-                    'active' => 'admin.merchants.*',
+                    'active' => ['admin.merchants.*'],
                     'roles' => ['admin'],
                     'icon' => 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-4.13a4 4 0 110-8 4 4 0 010 8z',
                 ],
                 [
                     'label' => 'Forms',
                     'route' => $isAdmin ? 'admin.forms.index' : 'merchant.forms.index',
-                    'active' => $isAdmin ? 'admin.forms.*' : 'merchant.forms.*',
+                    'active' => [$isAdmin ? 'admin.forms.*' : 'merchant.forms.*'],
                     'roles' => ['admin', 'merchant'],
                     'icon' => 'M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v14l-4-2-3 2-3-2-4 2V6a2 2 0 012-2z',
                 ],
                 [
                     'label' => 'Reports',
-                    'route' => 'reports.index',
-                    'active' => 'reports.*',
                     'roles' => ['admin', 'merchant'],
                     'icon' => 'M4 20h16M7 16V9m5 7V4m5 12v-5',
+                    'children' => [
+                        [
+                            'label' => 'Customer Payment Report',
+                            'route' => 'reports.index',
+                            'active' => ['reports.index', 'reports.export'],
+                            'roles' => ['admin', 'merchant'],
+                        ],
+                        [
+                            'label' => 'Transaction Report',
+                            'route' => 'reports.transactions',
+                            'active' => ['reports.transactions*'],
+                            'roles' => ['admin'],
+                        ],
+                    ],
                 ],
             ];
 
-            $menu = array_values(array_filter($items, fn ($item) => auth()->user()->hasAnyRole($item['roles'])));
+            $menu = [];
+            foreach ($items as $item) {
+                if (! $user->hasAnyRole($item['roles'])) {
+                    continue;
+                }
+
+                if (isset($item['children'])) {
+                    $item['children'] = array_values(array_filter(
+                        $item['children'],
+                        fn ($c) => $user->hasAnyRole($c['roles'])
+                            && \Illuminate\Support\Facades\Route::has($c['route'])
+                    ));
+
+                    if (! count($item['children'])) {
+                        continue;
+                    }
+                }
+
+                $menu[] = $item;
+            }
         @endphp
 
         <div x-data="{ sidebar: false }" class="min-h-screen">
@@ -74,15 +106,50 @@
                     </div>
 
                     @foreach ($menu as $item)
-                        @php $active = request()->routeIs($item['active']); @endphp
-                        <a href="{{ route($item['route']) }}"
-                           class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition
-                                  {{ $active ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800 hover:text-white' }}">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="{{ $item['icon'] }}" />
-                            </svg>
-                            {{ $item['label'] }}
-                        </a>
+                        @if (isset($item['children']))
+                            @php
+                                $groupActive = collect($item['children'])
+                                    ->contains(fn ($c) => request()->routeIs(...$c['active']));
+                            @endphp
+
+                            <div x-data="{ open: {{ $groupActive ? 'true' : 'false' }} }">
+                                <button type="button" @click="open = ! open"
+                                        class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md text-sm font-medium transition
+                                               {{ $groupActive ? 'text-white' : 'hover:bg-slate-800 hover:text-white' }}">
+                                    <span class="flex items-center gap-3">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="{{ $item['icon'] }}" />
+                                        </svg>
+                                        {{ $item['label'] }}
+                                    </span>
+                                    <svg class="w-4 h-4 transition-transform" :class="open ? 'rotate-180' : ''"
+                                         fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </button>
+
+                                <div x-show="open" class="mt-1 ml-5 pl-3 border-l border-slate-700 space-y-1">
+                                    @foreach ($item['children'] as $child)
+                                        @php $childActive = request()->routeIs(...$child['active']); @endphp
+                                        <a href="{{ route($child['route']) }}"
+                                           class="block px-3 py-2 rounded-md text-sm transition
+                                                  {{ $childActive ? 'bg-indigo-600 text-white font-medium' : 'hover:bg-slate-800 hover:text-white' }}">
+                                            {{ $child['label'] }}
+                                        </a>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @else
+                            @php $active = request()->routeIs(...$item['active']); @endphp
+                            <a href="{{ route($item['route']) }}"
+                               class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition
+                                      {{ $active ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800 hover:text-white' }}">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="{{ $item['icon'] }}" />
+                                </svg>
+                                {{ $item['label'] }}
+                            </a>
+                        @endif
                     @endforeach
                 </nav>
             </aside>
