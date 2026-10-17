@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Merchant\DashboardController as MerchantDashboardController;
 use App\Http\Controllers\Merchant\FormController as MerchantFormController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\TransactionReportController;
 
 Route::get('/', function () {
     if (auth()->check()) {
@@ -59,6 +60,21 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'verified', 'role:merchant|admin'])->group(function () {
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('/reports/export', [ReportController::class, 'export'])->middleware('throttle:10,1')->name('reports.export');
+});
+
+Route::middleware(['auth', 'verified', 'role:admin'])->group(function () {
+    Route::get('/reports/transactions', [TransactionReportController::class, 'index'])
+        ->middleware('throttle:30,1')
+        ->name('reports.transactions');
+    Route::get('/reports/transactions/{uuid}', [TransactionReportController::class, 'show'])
+        ->middleware('throttle:60,1')
+        ->name('reports.transactions.show');
+    Route::post('/reports/transactions/{uuid}/check', [TransactionReportController::class, 'check'])
+        ->middleware('throttle:10,1')
+        ->name('reports.transactions.check');
+    Route::post('/reports/transactions/{uuid}/sync', [TransactionReportController::class, 'sync'])
+        ->middleware('throttle:5,1')
+        ->name('reports.transactions.sync');
 });
 
 require __DIR__ . '/auth.php';
