@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Razorpay\Api\Api;
 use Throwable;
+use Illuminate\Support\Facades\Log;
 
 class TransactionReportController extends Controller
 {
@@ -154,6 +155,13 @@ class TransactionReportController extends Controller
         try {
             [$order, $payments] = $this->fetchFromRazorpay($submission);
         } catch (Throwable $e) {
+            Log::error('transaction.razorpay_check_failed', [
+                'uuid' => $submission->uuid,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
             AuditLog::record('transaction.razorpay_check_failed', $submission->id, [
                 'error' => class_basename($e),
             ]);
@@ -309,12 +317,18 @@ class TransactionReportController extends Controller
 
             $list = $o->payments();
             foreach ((array) ($list['items'] ?? []) as $p) {
-                $payments[] = $this->mapPayment($p);
+                $mapped = $this->mapPayment($p);
+                if ($mapped !== null) {
+                    $payments[] = $mapped;
+                }
             }
         }
 
         if (empty($payments) && $submission->razorpay_payment_id) {
-            $payments[] = $this->mapPayment($api->payment->fetch($submission->razorpay_payment_id));
+            $mapped = $this->mapPayment($api->payment->fetch($submission->razorpay_payment_id));
+            if ($mapped !== null) {
+                $payments[] = $mapped;
+            }
         }
 
         return [$order, $payments];
@@ -359,17 +373,30 @@ class TransactionReportController extends Controller
         return $result;
     }
 
-    private function mapPayment($p): array
+        private function mapPayment($p): ?array
     {
+        $p = is_object($p) && method_exists($p, 'toArray') ? $p->toArray() : (array) $p;
+
+        if (empty($p['id'])) {
+            // Empty items are normal when an order has no payments. Log only odd ones.
+            if (! empty($p)) {
+                Log::warning('razorpay_item_without_id', ['keys' => array_keys($p)]);
+            }
+
+            return null;
+        }
+
         return [
             'id'              => $p['id'],
-            'status'          => $p['status'],
+            'status'          => $p['status'] ?? 'unknown',
             'method'          => $p['method'] ?? null,
-            'amount'          => $p['amount'],
+            'amount'          => (int) ($p['amount'] ?? 0),
             'amount_refunded' => (int) ($p['amount_refunded'] ?? 0),
             'currency'        => $p['currency'] ?? 'INR',
             'order_id'        => $p['order_id'] ?? null,
-            'created_at'      => Carbon::createFromTimestamp($p['created_at'], config('app.timezone'))->format('d M Y, h:i A'),
+            'created_at'      => isset($p['created_at'])
+                ? Carbon::createFromTimestamp($p['created_at'], config('app.timezone'))->format('d M Y, h:i A')
+                : '-',
         ];
     }
 
