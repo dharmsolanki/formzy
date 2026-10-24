@@ -14,6 +14,8 @@ class FormSubmission extends Model
         'uuid',
         'form_id',
         'data',
+        'customer_email',
+        'customer_mobile',
         'amount',
         'payment_status',
         'razorpay_order_id',

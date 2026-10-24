@@ -11,9 +11,15 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class FormController extends Controller
 {
+    private const SYSTEM_KEYS = [FormField::KEY_EMAIL, FormField::KEY_MOBILE];
+    private const RESERVED_LABELS = ['email', 'mobile number', 'mobile'];
+    private const OPTION_TYPES = ['dropdown', 'radio', 'checkbox'];
+
     public function index(Request $request)
     {
         $filters = $request->validate([
@@ -70,6 +76,18 @@ class FormController extends Controller
         return view('admin.forms.index', compact('forms', 'filters', 'merchants'));
     }
 
+    /**
+     * JSON list of one merchant's forms (for the dependent dropdown).
+     */
+    public function byMerchant(User $merchant)
+    {
+        abort_unless($merchant->hasRole('merchant'), 404);
+
+        return response()->json(
+            Form::where('user_id', $merchant->id)->orderBy('title')->get(['id', 'title'])
+        );
+    }
+
     /* ---------- STEP 1: Basic info + fields ---------- */
 
     public function create()
@@ -82,8 +100,9 @@ class FormController extends Controller
     public function store(Request $request)
     {
         $validated = $this->validateForm($request);
+        $rows = $this->parseFields($request);
 
-        $form = DB::transaction(function () use ($validated) {
+        $form = DB::transaction(function () use ($validated, $rows) {
             $form = Form::create([
                 'user_id' => $validated['user_id'],
                 'title' => $validated['title'],
@@ -96,7 +115,7 @@ class FormController extends Controller
                 'is_complete' => false,
             ]);
 
-            $this->saveFields($form, $validated['fields']);
+            $this->syncFields($form, $rows);
 
             return $form;
         });
@@ -116,8 +135,9 @@ class FormController extends Controller
     public function update(Request $request, Form $form)
     {
         $validated = $this->validateForm($request);
+        $rows = $this->parseFields($request);
 
-        DB::transaction(function () use ($validated, $form) {
+        DB::transaction(function () use ($validated, $form, $rows) {
             $data = [
                 'user_id' => $validated['user_id'],
                 'title' => $validated['title'],
@@ -133,8 +153,7 @@ class FormController extends Controller
 
             $form->update($data);
 
-            $form->fields()->delete();
-            $this->saveFields($form, $validated['fields']);
+            $this->syncFields($form, $rows);
         });
 
         return redirect()->route('admin.forms.payment', $form)
@@ -163,7 +182,6 @@ class FormController extends Controller
         ]);
 
         $newWebhookSecret = $validated['webhook_secret'] ?? null;
-
         $newKeyId = $validated['razorpay_key_id'] ?? null;
         $newSecret = $validated['razorpay_key_secret'] ?? null;
 
@@ -191,7 +209,7 @@ class FormController extends Controller
 
         try {
             $response = Http::timeout(15)
-                ->withBasicAuth($validated['razorpay_key_id'], $validated['razorpay_key_secret'])
+                ->withBasicAuth($newKeyId, $newSecret)
                 ->get('https://api.razorpay.com/v1/payments', ['count' => 1]);
         } catch (ConnectionException $e) {
             return back()
@@ -212,8 +230,8 @@ class FormController extends Controller
         }
 
         $configData = [
-            'razorpay_key_id' => $validated['razorpay_key_id'],
-            'razorpay_key_secret' => $validated['razorpay_key_secret'],
+            'razorpay_key_id' => $newKeyId,
+            'razorpay_key_secret' => $newSecret,
             'is_verified' => true,
         ];
 
@@ -290,6 +308,9 @@ class FormController extends Controller
 
     /* ---------- Helpers ---------- */
 
+    /**
+     * Validation for the form itself (not the fields).
+     */
     private function validateForm(Request $request): array
     {
         $validated = $request->validate([
@@ -297,14 +318,8 @@ class FormController extends Controller
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:1000'],
             'amount_type' => ['required', 'in:fixed,customer_entered'],
-            'fixed_amount' => ['required_if:amount_type,fixed', 'nullable', 'numeric', 'min:1'],
+            'fixed_amount' => ['required_if:amount_type,fixed', 'nullable', 'numeric', 'min:1', 'max:500000', 'decimal:0,2'],
             'expires_at' => ['nullable', 'date', 'after:now'],
-            'fields' => ['required', 'array', 'min:1'],
-            'fields.*.label' => ['required', 'string', 'max:255'],
-            'fields.*.type' => ['required', 'in:text,email,number,dropdown,radio,checkbox'],
-            'fields.*.options' => ['nullable', 'string'],
-            'fields.*.is_required' => ['nullable'],
-            'fields.*.is_readonly' => ['nullable'],
         ]);
 
         $merchant = User::findOrFail($validated['user_id']);
@@ -315,36 +330,200 @@ class FormController extends Controller
         return $validated;
     }
 
-    private function saveFields(Form $form, array $fields): void
+    /**
+     * Read the submitted field rows and validate the custom ones.
+     * System rows (Email, Mobile) only carry their key, nothing else is trusted.
+     */
+    private function parseFields(Request $request): array
     {
-        foreach (array_values($fields) as $index => $fieldData) {
-            $options = null;
+        $request->validate([
+            'fields' => ['nullable', 'array', 'max:50'],
+        ]);
 
-            if (in_array($fieldData['type'], ['dropdown', 'radio', 'checkbox']) && ! empty($fieldData['options'])) {
-                $options = array_map('trim', explode(',', $fieldData['options']));
+        $rows = [];
+
+        foreach (array_values((array) $request->input('fields', [])) as $row) {
+            $row = (array) $row;
+
+            $rows[] = [
+                'key' => trim((string) ($row['key'] ?? '')),
+                'label' => trim((string) ($row['label'] ?? '')),
+                'type' => $row['type'] ?? null,
+                'options' => $row['options'] ?? null,
+                'is_required' => isset($row['is_required']),
+                'is_readonly' => isset($row['is_readonly']),
+            ];
+        }
+
+        $custom = array_values(array_filter(
+            $rows,
+            fn ($r) => ! in_array($r['key'], self::SYSTEM_KEYS, true)
+        ));
+
+        $validator = Validator::make(['fields' => $custom], [
+            'fields.*.label' => ['required', 'string', 'max:255'],
+            'fields.*.type' => ['required', 'in:text,email,number,dropdown,radio,checkbox'],
+            'fields.*.options' => ['nullable', 'string', 'max:2000'],
+        ], [], [
+            'fields.*.label' => 'field label',
+            'fields.*.type' => 'field type',
+            'fields.*.options' => 'field options',
+        ]);
+
+        $validator->after(function ($v) use ($custom) {
+            $seen = [];
+
+            foreach ($custom as $i => $r) {
+                $name = mb_strtolower($r['label']);
+
+                if (in_array($name, self::RESERVED_LABELS, true)) {
+                    $v->errors()->add("fields.$i.label", 'The labels "Email" and "Mobile Number" are reserved. Every form already has these two fields.');
+                }
+
+                if ($name !== '' && isset($seen[$name])) {
+                    $v->errors()->add("fields.$i.label", 'Two fields cannot have the same label: ' . $r['label']);
+                }
+                $seen[$name] = true;
+
+                if (in_array($r['type'], self::OPTION_TYPES, true) && $this->parseOptions($r['options']) === null) {
+                    $v->errors()->add("fields.$i.options", 'Enter at least one option for "' . $r['label'] . '".');
+                }
+            }
+        });
+
+        $validator->validate();
+
+        return $rows;
+    }
+
+    /**
+     * Save the fields. Existing fields keep their key (and their id),
+     * so customer data stays linked even when a label is renamed.
+     */
+    private function syncFields(Form $form, array $rows): void
+    {
+        $this->ensureSystemFields($form);
+
+        $existing = FormField::where('form_id', $form->id)->get()->keyBy('key');
+        $keptIds = [];
+
+        foreach ($rows as $index => $row) {
+            if (in_array($row['key'], self::SYSTEM_KEYS, true)) {
+                // System field: only its position can change
+                $field = $existing->get($row['key']);
+
+                if ($field) {
+                    $field->update(['order' => $index]);
+                    $keptIds[] = $field->id;
+                }
+
+                continue;
+            }
+
+            $data = [
+                'label' => $row['label'],
+                'type' => $row['type'],
+                'options' => in_array($row['type'], self::OPTION_TYPES, true)
+                    ? $this->parseOptions($row['options'])
+                    : null,
+                'is_required' => $row['is_required'],
+                'is_readonly' => $row['is_readonly'],
+                'order' => $index,
+            ];
+
+            $field = $row['key'] !== '' ? $existing->get($row['key']) : null;
+
+            if ($field && ! $field->is_system) {
+                $field->update($data);
+            } else {
+                $field = FormField::create($data + [
+                    'form_id' => $form->id,
+                    'key' => $this->newKey($form),
+                    'is_system' => false,
+                ]);
+            }
+
+            $keptIds[] = $field->id;
+        }
+
+        // Custom fields that were removed in the form are deleted
+        FormField::where('form_id', $form->id)
+            ->where('is_system', false)
+            ->whereNotIn('id', $keptIds)
+            ->delete();
+
+        $this->renumber($form);
+    }
+
+    /**
+     * Every form must have Email and Mobile. Missing ones are added at the top.
+     */
+    private function ensureSystemFields(Form $form): void
+    {
+        $have = FormField::where('form_id', $form->id)
+            ->where('is_system', true)
+            ->pluck('key')
+            ->all();
+
+        $defs = [
+            FormField::KEY_EMAIL => ['label' => 'Email', 'type' => 'email', 'order' => -2],
+            FormField::KEY_MOBILE => ['label' => 'Mobile Number', 'type' => 'text', 'order' => -1],
+        ];
+
+        foreach ($defs as $key => $def) {
+            if (in_array($key, $have, true)) {
+                continue;
             }
 
             FormField::create([
                 'form_id' => $form->id,
-                'label' => $fieldData['label'],
-                'type' => $fieldData['type'],
-                'options' => $options,
-                'is_required' => isset($fieldData['is_required']),
-                'is_readonly' => isset($fieldData['is_readonly']),
-                'order' => $index,
+                'key' => $key,
+                'is_system' => true,
+                'label' => $def['label'],
+                'type' => $def['type'],
+                'options' => null,
+                'is_required' => true,
+                'is_readonly' => false,
+                'order' => $def['order'],
             ]);
         }
     }
 
     /**
-     * JSON list of one merchant's forms (for the dependent dropdown).
+     * Make the order 0, 1, 2, ... without gaps.
      */
-    public function byMerchant(User $merchant)
+    private function renumber(Form $form): void
     {
-        abort_unless($merchant->hasRole('merchant'), 404);
+        FormField::where('form_id', $form->id)
+            ->orderBy('order')
+            ->orderBy('id')
+            ->get()
+            ->each(function ($field, $i) {
+                if ((int) $field->order !== $i) {
+                    $field->update(['order' => $i]);
+                }
+            });
+    }
 
-        return response()->json(
-            Form::where('user_id', $merchant->id)->orderBy('title')->get(['id', 'title'])
-        );
+    private function newKey(Form $form): string
+    {
+        do {
+            $key = 'f_' . Str::lower(Str::random(8));
+        } while (FormField::where('form_id', $form->id)->where('key', $key)->exists());
+
+        return $key;
+    }
+
+    /**
+     * "A, B, C" becomes ['A', 'B', 'C']. Returns null when nothing is left.
+     */
+    private function parseOptions(?string $text): ?array
+    {
+        $list = array_values(array_unique(array_filter(
+            array_map('trim', explode(',', (string) $text)),
+            fn ($o) => $o !== ''
+        )));
+
+        return count($list) ? $list : null;
     }
 }

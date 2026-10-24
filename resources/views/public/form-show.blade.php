@@ -95,7 +95,7 @@
                     @else
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-1">Amount to pay (₹)</label>
-                            <input type="number" name="custom_amount" step="0.01" min="1"
+                            <input type="number" name="custom_amount" step="0.01" min="1" max="500000"
                                 value="{{ old('custom_amount') }}" required
                                 class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                             @error('custom_amount')

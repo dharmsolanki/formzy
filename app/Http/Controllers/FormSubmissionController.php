@@ -79,7 +79,7 @@ class FormSubmissionController extends Controller
         }
 
         if ($form->amount_type === 'customer_entered') {
-            $rules['custom_amount'] = ['required', 'numeric', 'min:1'];
+            $rules['custom_amount'] = ['required', 'numeric', 'min:1', 'max:500000', 'decimal:0,2'];
         }
 
         $attributes = [];
@@ -88,7 +88,11 @@ class FormSubmissionController extends Controller
         }
         $attributes['custom_amount'] = 'amount';
 
-        $validated = $request->validate($rules, [], $attributes);
+        $validated = $request->validate($rules, [
+            'custom_amount.min' => 'The amount must be at least 1.',
+            'custom_amount.max' => 'The amount must not be more than 5,00,000.',
+            'custom_amount.decimal' => 'The amount can have at most 2 decimal places.',
+        ], $attributes);
 
         // Map field IDs back to labels for readable storage
         $submissionData = [];
