@@ -3,13 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\Form;
+use App\Models\FormField;
 use App\Models\FormSubmission;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Razorpay\Api\Api;
+use Throwable;
 
 class FormSubmissionController extends Controller
 {
+    /**
+     * Show the public form.
+     */
     public function show(string $uuid)
     {
         $form = Form::where('uuid', $uuid)->with(['fields', 'user'])->firstOrFail();
@@ -45,13 +51,18 @@ class FormSubmissionController extends Controller
     {
         $form = Form::where('uuid', $uuid)->with(['fields', 'paymentConfig', 'user'])->firstOrFail();
 
-        if (
-            ! $form->is_complete
+        if (! $form->is_complete
             || ! $form->is_active
             || ! $form->user->is_active
-            || ($form->expires_at && $form->expires_at->isPast())
-        ) {
+            || ($form->expires_at && $form->expires_at->isPast())) {
             return back()->withErrors(['form' => 'This form is no longer accepting responses.']);
+        }
+
+        // The admin changed the form after this page was opened
+        if ((int) $request->input('fields_version') !== (int) $form->fields_version) {
+            return redirect()->route('form.public', $form->uuid)
+                ->withInput($request->except('fields_version'))
+                ->withErrors(['form' => 'This form was updated. Please check the details and submit again.']);
         }
 
         $config = $form->paymentConfig;
@@ -60,67 +71,126 @@ class FormSubmissionController extends Controller
             return back()->withErrors(['form' => 'Payments are not configured for this form. Please contact the organizer.']);
         }
 
-        // Build dynamic validation rules based on this form's fields
-        $rules = [];
+        // Clean the two compulsory fields before validating
+        $input = (array) $request->input('fields', []);
+
         foreach ($form->fields as $field) {
-            $fieldRules = [];
+            $key = $field->key;
 
-            $fieldRules[] = $field->is_required ? 'required' : 'nullable';
+            if ($field->is_system && isset($input[$key]) && is_string($input[$key])) {
+                if ($key === FormField::KEY_EMAIL) {
+                    $input[$key] = mb_strtolower(trim($input[$key]));
+                }
+                if ($key === FormField::KEY_MOBILE) {
+                    $input[$key] = $this->normalizeMobile($input[$key]);
+                }
+            }
+        }
 
-            if ($field->type === 'email') {
-                $fieldRules[] = 'email';
-            } elseif ($field->type === 'number') {
-                $fieldRules[] = 'numeric';
-            } elseif (in_array($field->type, ['dropdown', 'radio'])) {
-                $fieldRules[] = Rule::in($field->options ?? []);
+        $request->merge(['fields' => $input]);
+
+        // Build the rules from this form's fields (by key)
+        $rules = [];
+        $attributes = [];
+
+        foreach ($form->fields as $field) {
+            $name = "fields.{$field->key}";
+            $attributes[$name] = $field->label;
+
+            if ($field->is_system && $field->key === FormField::KEY_EMAIL) {
+                $rules[$name] = ['required', 'string', 'email', 'max:255'];
+                continue;
             }
 
-            $rules["fields.{$field->id}"] = $fieldRules;
+            if ($field->is_system && $field->key === FormField::KEY_MOBILE) {
+                $rules[$name] = ['required', 'regex:/^[6-9][0-9]{9}$/'];
+                continue;
+            }
+
+            $fieldRules = [$field->is_required ? 'required' : 'nullable'];
+
+            switch ($field->type) {
+                case 'email':
+                    $fieldRules[] = 'email';
+                    $fieldRules[] = 'max:255';
+                    break;
+                case 'number':
+                    $fieldRules[] = 'numeric';
+                    break;
+                case 'dropdown':
+                case 'radio':
+                    $fieldRules[] = Rule::in($field->options ?? []);
+                    break;
+                case 'checkbox':
+                    $fieldRules[] = 'array';
+                    $rules[$name . '.*'] = [Rule::in($field->options ?? [])];
+                    break;
+                default:
+                    $fieldRules[] = 'string';
+                    $fieldRules[] = 'max:1000';
+            }
+
+            $rules[$name] = $fieldRules;
         }
 
         if ($form->amount_type === 'customer_entered') {
             $rules['custom_amount'] = ['required', 'numeric', 'min:1', 'max:500000', 'decimal:0,2'];
         }
-
-        $attributes = [];
-        foreach ($form->fields as $field) {
-            $attributes["fields.{$field->id}"] = $field->label;
-        }
         $attributes['custom_amount'] = 'amount';
 
         $validated = $request->validate($rules, [
+            'fields.mobile.regex' => 'Enter a valid 10-digit mobile number.',
             'custom_amount.min' => 'The amount must be at least 1.',
             'custom_amount.max' => 'The amount must not be more than 5,00,000.',
             'custom_amount.decimal' => 'The amount can have at most 2 decimal places.',
         ], $attributes);
 
-        // Map field IDs back to labels for readable storage
-        $submissionData = [];
+        // Answers by key, and the labels the customer saw
+        $answers = [];
+        $labels = [];
+
         foreach ($form->fields as $field) {
-            $submissionData[$field->label] = $validated['fields'][$field->id] ?? null;
+            $answers[$field->key] = $validated['fields'][$field->key] ?? null;
+            $labels[$field->key] = $field->label;
         }
 
         $amount = $form->amount_type === 'fixed'
             ? $form->fixed_amount
-            : $validated['custom_amount'];
+            : round((float) $validated['custom_amount'], 2);
 
         $submission = FormSubmission::create([
             'form_id' => $form->id,
-            'data' => $submissionData,
+            'data' => $answers,
+            'field_labels' => $labels,
+            'customer_email' => $answers[FormField::KEY_EMAIL] ?? null,
+            'customer_mobile' => $answers[FormField::KEY_MOBILE] ?? null,
             'amount' => $amount,
             'payment_status' => 'pending',
         ]);
 
-        $api = new Api($config->razorpay_key_id, $config->razorpay_key_secret);
+        try {
+            $api = new Api($config->razorpay_key_id, $config->razorpay_key_secret);
 
-        $razorpayOrder = $api->order->create([
-            'receipt' => $submission->uuid,
-            'amount' => (int) round($submission->amount * 100), // paise
-            'currency' => 'INR',
-            'notes' => [
-                'form_submission_id' => $submission->id,
-            ],
-        ]);
+            $razorpayOrder = $api->order->create([
+                'receipt' => $submission->uuid,
+                'amount' => (int) round($submission->amount * 100), // paise
+                'currency' => 'INR',
+                'notes' => [
+                    'form_submission_id' => $submission->id,
+                ],
+            ]);
+        } catch (Throwable $e) {
+            Log::error('razorpay_order_create_failed', [
+                'form_id' => $form->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            // No order means no payment, so do not leave an empty record behind
+            $submission->delete();
+
+            return back()->withInput()
+                ->withErrors(['form' => 'We could not start the payment. Please try again in a moment.']);
+        }
 
         $submission->update(['razorpay_order_id' => $razorpayOrder->id]);
 
@@ -183,5 +253,23 @@ class FormSubmissionController extends Controller
             ->firstOrFail();
 
         return view('public.receipt', compact('submission'));
+    }
+
+    /**
+     * "+91 98765-43210", "09876543210" and "9876543210" all become 9876543210.
+     */
+    private function normalizeMobile(string $value): string
+    {
+        $digits = preg_replace('/\D/', '', $value);
+
+        if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+            return substr($digits, 2);
+        }
+
+        if (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+            return substr($digits, 1);
+        }
+
+        return $digits;
     }
 }

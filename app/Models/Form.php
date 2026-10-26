@@ -22,6 +22,7 @@ class Form extends Model
         'wizard_step',
         'is_complete',
         'success_message',
+        'fields_version',
     ];
 
     protected $casts = [
@@ -47,7 +48,14 @@ class Form extends Model
         return $this->belongsTo(User::class);
     }
 
+    // Active fields only (what customers and the admin see)
     public function fields()
+    {
+        return $this->hasMany(FormField::class)->whereNull('archived_at')->orderBy('order');
+    }
+
+    // Active and archived fields (for reports and exports)
+    public function allFields()
     {
         return $this->hasMany(FormField::class)->orderBy('order');
     }

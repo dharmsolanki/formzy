@@ -197,11 +197,7 @@
                                 <td class="px-6 py-3 text-xs font-mono text-gray-600">{{ $s->razorpay_payment_id }}</td>
                                 @if ($selectedForm)
                                     @foreach ($selectedForm->fields as $field)
-                                        @php
-                                            $value = $s->data[$field->label] ?? '';
-                                            $value = is_array($value) ? implode(', ', $value) : $value;
-                                        @endphp
-                                        <td class="px-6 py-3 text-sm text-gray-900">{{ $value }}</td>
+                                        <td class="px-6 py-3 text-sm text-gray-900">{{ $s->answer($field) }}</td>
                                     @endforeach
                                 @endif
                             </tr>

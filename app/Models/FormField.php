@@ -23,6 +23,7 @@ class FormField extends Model
         'is_required',
         'is_readonly',
         'order',
+        'archived_at',
     ];
 
     protected $casts = [
@@ -30,6 +31,7 @@ class FormField extends Model
         'is_required' => 'boolean',
         'is_readonly' => 'boolean',
         'options' => 'array',
+        'archived_at' => 'datetime',
     ];
 
     public function form()

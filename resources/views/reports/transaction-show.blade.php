@@ -135,8 +135,7 @@
         {{-- Customer data --}}
         <x-card title="Customer Data" class="mb-6">
             <dl class="text-sm divide-y divide-gray-100">
-                @forelse ($submission->data ?? [] as $label => $value)
-                    @php $value = is_array($value) ? implode(', ', $value) : $value; @endphp
+                @forelse ($submission->answersForDisplay() as $label => $value)
                     <div class="flex justify-between py-2 gap-4">
                         <dt class="text-gray-500">{{ $label }}</dt>
                         <dd class="text-gray-900 text-right">{{ $value }}</dd>

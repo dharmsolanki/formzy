@@ -29,8 +29,14 @@
 
             <form method="POST" action="{{ route('form.submit', $form->uuid) }}">
                 @csrf
+                <input type="hidden" name="fields_version" value="{{ $form->fields_version }}">
 
                 @foreach ($form->fields as $field)
+                    @php
+                        $name = 'fields.' . $field->key;
+                        $isMobile = $field->is_system && $field->key === 'mobile';
+                    @endphp
+
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-1">
                             {{ $field->label }}
@@ -39,29 +45,37 @@
                             @endif
                         </label>
 
-                        @if (in_array($field->type, ['text', 'email', 'number']))
+                        @if ($isMobile)
+                            <input type="tel" inputmode="numeric" autocomplete="tel"
+                                name="fields[{{ $field->key }}]"
+                                value="{{ old($name) }}"
+                                placeholder="10-digit mobile number"
+                                required
+                                class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+
+                        @elseif (in_array($field->type, ['text', 'email', 'number']))
                             <input
                                 type="{{ $field->type }}"
-                                name="fields[{{ $field->id }}]"
-                                value="{{ old('fields.'.$field->id) }}"
+                                name="fields[{{ $field->key }}]"
+                                value="{{ old($name) }}"
                                 {{ $field->is_readonly ? 'readonly' : '' }}
                                 {{ $field->is_required ? 'required' : '' }}
                                 class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 {{ $field->is_readonly ? 'bg-gray-100' : '' }}">
 
                         @elseif ($field->type === 'dropdown')
-                            <select name="fields[{{ $field->id }}]" {{ $field->is_required ? 'required' : '' }}
+                            <select name="fields[{{ $field->key }}]" {{ $field->is_required ? 'required' : '' }}
                                 class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                                 <option value="">-- Select --</option>
                                 @foreach ($field->options ?? [] as $option)
-                                    <option value="{{ $option }}" {{ old('fields.'.$field->id) === $option ? 'selected' : '' }}>{{ $option }}</option>
+                                    <option value="{{ $option }}" {{ old($name) === $option ? 'selected' : '' }}>{{ $option }}</option>
                                 @endforeach
                             </select>
 
                         @elseif ($field->type === 'radio')
                             @foreach ($field->options ?? [] as $option)
                                 <label class="flex items-center mb-1 text-sm text-gray-700">
-                                    <input type="radio" name="fields[{{ $field->id }}]" value="{{ $option }}"
-                                        {{ old('fields.'.$field->id) === $option ? 'checked' : '' }}
+                                    <input type="radio" name="fields[{{ $field->key }}]" value="{{ $option }}"
+                                        {{ old($name) === $option ? 'checked' : '' }}
                                         {{ $field->is_required ? 'required' : '' }}
                                         class="mr-2 text-indigo-600 focus:ring-indigo-500">
                                     {{ $option }}
@@ -69,10 +83,10 @@
                             @endforeach
 
                         @elseif ($field->type === 'checkbox')
-                            @php $oldChecked = (array) old('fields.'.$field->id, []); @endphp
+                            @php $oldChecked = (array) old($name, []); @endphp
                             @foreach ($field->options ?? [] as $option)
                                 <label class="flex items-center mb-1 text-sm text-gray-700">
-                                    <input type="checkbox" name="fields[{{ $field->id }}][]" value="{{ $option }}"
+                                    <input type="checkbox" name="fields[{{ $field->key }}][]" value="{{ $option }}"
                                         {{ in_array($option, $oldChecked, true) ? 'checked' : '' }}
                                         class="mr-2 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
                                     {{ $option }}
@@ -80,7 +94,7 @@
                             @endforeach
                         @endif
 
-                        @error('fields.' . $field->id)
+                        @error($name)
                             <p class="text-red-600 text-sm mt-1">{{ $message }}</p>
                         @enderror
                     </div>

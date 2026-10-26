@@ -91,7 +91,7 @@ class ReportController extends Controller
                     $line[] = $this->cell($s->razorpay_payment_id);
 
                     foreach ($labels as $label) {
-                        $value = $s->data[$label] ?? '';
+                        $value = $s->answerByLabel($label);
                         $value = is_array($value) ? implode(', ', $value) : (string) $value;
                         $line[] = $this->cell($value);
                     }

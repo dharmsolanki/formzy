@@ -6,34 +6,71 @@
     </x-slot>
 
     @php
-        // If validation failed, restore what the admin typed. Otherwise load from DB.
+        $systemDefs = [
+            'email'  => ['label' => 'Email', 'type' => 'email'],
+            'mobile' => ['label' => 'Mobile Number', 'type' => 'text'],
+        ];
+
+        $initialFields = [];
+
         if (old('fields') !== null) {
-            $initialFields = collect(old('fields', []))->map(function ($f) {
-                return [
-                    'label' => $f['label'] ?? '',
-                    'type' => $f['type'] ?? 'text',
+            // After a validation error: restore what the admin typed
+            foreach (array_values((array) old('fields')) as $f) {
+                $key = (string) ($f['key'] ?? '');
+                $isSystem = isset($systemDefs[$key]);
+
+                $initialFields[] = [
+                    'key' => $key,
+                    'is_system' => $isSystem,
+                    'label' => $isSystem ? $systemDefs[$key]['label'] : ($f['label'] ?? ''),
+                    'type' => $isSystem ? $systemDefs[$key]['type'] : ($f['type'] ?? 'text'),
                     'options' => $f['options'] ?? '',
-                    'is_required' => isset($f['is_required']),
-                    'is_readonly' => isset($f['is_readonly']),
+                    'is_required' => $isSystem ? true : isset($f['is_required']),
+                    'is_readonly' => $isSystem ? false : isset($f['is_readonly']),
                 ];
-            })->values()->all();
+            }
         } else {
-            $initialFields = $form->fields->map(function ($f) {
-                return [
+            foreach ($form->fields as $f) {
+                $initialFields[] = [
+                    'key' => (string) $f->key,
+                    'is_system' => (bool) $f->is_system,
                     'label' => $f->label,
                     'type' => $f->type,
                     'options' => is_array($f->options) ? implode(', ', $f->options) : '',
                     'is_required' => (bool) $f->is_required,
                     'is_readonly' => (bool) $f->is_readonly,
                 ];
-            })->values()->all();
+            }
+
+            // Old forms (made before the fixed fields) get them added at the top on save
+            $haveKeys = collect($initialFields)->where('is_system', true)->pluck('key')->all();
+            $missing = [];
+
+            foreach ($systemDefs as $key => $def) {
+                if (! in_array($key, $haveKeys, true)) {
+                    $missing[] = [
+                        'key' => $key,
+                        'is_system' => true,
+                        'label' => $def['label'],
+                        'type' => $def['type'],
+                        'options' => '',
+                        'is_required' => true,
+                        'is_readonly' => false,
+                    ];
+                }
+            }
+
+            $initialFields = array_merge($missing, $initialFields);
         }
 
-        if (count($initialFields) === 0) {
-            $initialFields = [['label' => '', 'type' => 'text', 'options' => '', 'is_required' => true, 'is_readonly' => false]];
+        // Server errors use the position among custom fields (system rows are not counted)
+        $fieldErrors = [];
+        foreach ($errors->getMessages() as $k => $msgs) {
+            if (preg_match('/^fields\.(\d+)\.(label|type|options)$/', $k, $m)) {
+                $fieldErrors[(int) $m[1]][$m[2]] = $msgs[0];
+            }
         }
 
-        $hasFieldErrors = collect($errors->keys())->contains(fn ($k) => str_starts_with($k, 'fields'));
         $currentAmountType = old('amount_type', $form->amount_type);
     @endphp
 
@@ -48,9 +85,9 @@
                 </div>
             @endif
 
-            @if ($hasFieldErrors)
+            @if (count($fieldErrors))
                 <div class="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                    Please check the form fields below. Every field needs a label and a type.
+                    Please fix the highlighted fields below.
                 </div>
             @endif
 
@@ -63,8 +100,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <x-input-label for="user_id" value="Merchant" />
-                            <select name="user_id" id="user_id" required
-                                    class="searchable mt-1 block w-full">
+                            <select name="user_id" id="user_id" required class="searchable mt-1 block w-full">
                                 <option value="">-- Select Merchant --</option>
                                 @foreach ($merchants as $merchant)
                                     <option value="{{ $merchant->id }}" {{ old('user_id', $form->user_id) == $merchant->id ? 'selected' : '' }}>
@@ -128,55 +164,96 @@
 
                 {{-- Fields builder --}}
                 <x-card title="Form Fields" class="mb-6">
+                    <p class="text-xs text-gray-500 mb-4">
+                        Email and Mobile Number are part of every form and cannot be changed or removed.
+                        Add any other fields you need below.
+                    </p>
+
                     <div class="space-y-3">
                         <template x-for="(field, index) in fields" :key="index">
-                            <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                            <div class="border rounded-lg p-4"
+                                 :class="field.is_system ? 'border-indigo-200 bg-indigo-50' : 'border-gray-200 bg-gray-50'">
+
                                 <div class="flex items-center justify-between mb-3">
                                     <span class="text-xs font-semibold uppercase text-gray-500" x-text="'Field ' + (index + 1)"></span>
-                                    <button type="button" @click="removeField(index)"
-                                            x-show="fields.length > 1"
+
+                                    <span x-show="field.is_system"
+                                          class="text-xs font-medium text-indigo-700 bg-indigo-100 rounded-full px-2 py-0.5">Fixed field</span>
+
+                                    <button type="button" @click="removeField(index)" x-show="!field.is_system"
                                             class="text-red-600 hover:underline text-sm">Remove</button>
                                 </div>
 
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                {{-- System field: only the key is sent --}}
+                                <template x-if="field.is_system">
                                     <div>
-                                        <label class="text-sm text-gray-600">Label</label>
-                                        <input type="text" :name="'fields['+index+'][label]'" x-model="field.label" required
-                                               class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                        <input type="hidden" :name="'fields['+index+'][key]'" :value="field.key">
+                                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                                            <div>
+                                                <div class="text-gray-500 text-xs">Label</div>
+                                                <div class="font-medium text-gray-900" x-text="field.label"></div>
+                                            </div>
+                                            <div>
+                                                <div class="text-gray-500 text-xs">Type</div>
+                                                <div class="font-medium text-gray-900" x-text="field.key === 'email' ? 'Email' : 'Mobile (10 digits)'"></div>
+                                            </div>
+                                            <div>
+                                                <div class="text-gray-500 text-xs">Required</div>
+                                                <div class="font-medium text-gray-900">Yes</div>
+                                            </div>
+                                        </div>
                                     </div>
+                                </template>
+
+                                {{-- Custom field --}}
+                                <template x-if="!field.is_system">
                                     <div>
-                                        <label class="text-sm text-gray-600">Type</label>
-                                        <select :name="'fields['+index+'][type]'" x-model="field.type"
-                                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                            <option value="text">Text</option>
-                                            <option value="email">Email</option>
-                                            <option value="number">Number</option>
-                                            <option value="dropdown">Dropdown</option>
-                                            <option value="radio">Radio</option>
-                                            <option value="checkbox">Checkbox</option>
-                                        </select>
+                                        <input type="hidden" :name="'fields['+index+'][key]'" :value="field.key">
+
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                            <div>
+                                                <label class="text-sm text-gray-600">Label</label>
+                                                <input type="text" :name="'fields['+index+'][label]'" x-model="field.label" required
+                                                       class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                                <p class="text-red-600 text-sm mt-1" x-show="errorFor(index, 'label')" x-text="errorFor(index, 'label')"></p>
+                                            </div>
+                                            <div>
+                                                <label class="text-sm text-gray-600">Type</label>
+                                                <select :name="'fields['+index+'][type]'" x-model="field.type"
+                                                        class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                                    <option value="text">Text</option>
+                                                    <option value="email">Email</option>
+                                                    <option value="number">Number</option>
+                                                    <option value="dropdown">Dropdown</option>
+                                                    <option value="radio">Radio</option>
+                                                    <option value="checkbox">Checkbox</option>
+                                                </select>
+                                                <p class="text-red-600 text-sm mt-1" x-show="errorFor(index, 'type')" x-text="errorFor(index, 'type')"></p>
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3" x-show="['dropdown', 'radio', 'checkbox'].includes(field.type)">
+                                            <label class="text-sm text-gray-600">Options (comma separated)</label>
+                                            <input type="text" :name="'fields['+index+'][options]'" x-model="field.options"
+                                                   placeholder="Option A, Option B, Option C"
+                                                   class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                            <p class="text-red-600 text-sm mt-1" x-show="errorFor(index, 'options')" x-text="errorFor(index, 'options')"></p>
+                                        </div>
+
+                                        <div class="flex gap-6">
+                                            <label class="flex items-center text-sm text-gray-700">
+                                                <input type="checkbox" :name="'fields['+index+'][is_required]'" value="1" x-model="field.is_required"
+                                                       class="mr-2 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                                Required
+                                            </label>
+                                            <label class="flex items-center text-sm text-gray-700">
+                                                <input type="checkbox" :name="'fields['+index+'][is_readonly]'" value="1" x-model="field.is_readonly"
+                                                       class="mr-2 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                                Read-only
+                                            </label>
+                                        </div>
                                     </div>
-                                </div>
-
-                                <div class="mb-3" x-show="['dropdown', 'radio', 'checkbox'].includes(field.type)">
-                                    <label class="text-sm text-gray-600">Options (comma separated)</label>
-                                    <input type="text" :name="'fields['+index+'][options]'" x-model="field.options"
-                                           placeholder="Option A, Option B, Option C"
-                                           class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                </div>
-
-                                <div class="flex gap-6">
-                                    <label class="flex items-center text-sm text-gray-700">
-                                        <input type="checkbox" :name="'fields['+index+'][is_required]'" value="1" x-model="field.is_required"
-                                               class="mr-2 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                                        Required
-                                    </label>
-                                    <label class="flex items-center text-sm text-gray-700">
-                                        <input type="checkbox" :name="'fields['+index+'][is_readonly]'" value="1" x-model="field.is_readonly"
-                                               class="mr-2 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                                        Read-only
-                                    </label>
-                                </div>
+                                </template>
                             </div>
                         </template>
                     </div>
@@ -200,15 +277,31 @@
             return {
                 amountType: @json($currentAmountType),
                 fields: @json($initialFields),
-                addField() {
-                    this.fields.push({ label: '', type: 'text', options: '', is_required: false, is_readonly: false });
+                errors: @json($fieldErrors),
+
+                // Server errors are numbered among custom fields only
+                customIndex(index) {
+                    return this.fields.slice(0, index).filter(f => !f.is_system).length;
                 },
+
+                errorFor(index, name) {
+                    const e = this.errors[this.customIndex(index)];
+                    return e ? e[name] : '';
+                },
+
+                addField() {
+                    this.fields.push({
+                        key: '', is_system: false, label: '', type: 'text',
+                        options: '', is_required: false, is_readonly: false,
+                    });
+                },
+
                 removeField(index) {
-                    if (this.fields.length > 1) {
+                    if (!this.fields[index].is_system) {
                         this.fields.splice(index, 1);
                     }
-                }
-            }
+                },
+            };
         }
     </script>
 </x-app-layout>

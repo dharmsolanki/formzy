@@ -53,13 +53,9 @@
 
         <h2 class="mt-6 text-sm font-semibold text-gray-900 uppercase tracking-wide">Details</h2>
         <dl class="mt-2 text-sm divide-y divide-gray-100">
-            @foreach ($submission->form->fields as $field)
-                @php
-                    $value = $submission->data[$field->label] ?? '';
-                    $value = is_array($value) ? implode(', ', $value) : $value;
-                @endphp
+            @foreach ($submission->answersForDisplay() as $label => $value)
                 <div class="flex justify-between py-2 gap-4">
-                    <dt class="text-gray-500">{{ $field->label }}</dt>
+                    <dt class="text-gray-500">{{ $label }}</dt>
                     <dd class="text-gray-900 text-right">{{ $value }}</dd>
                 </div>
             @endforeach
