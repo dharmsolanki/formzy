@@ -11,7 +11,6 @@
                 'id' => $f->id,
                 'title' => $f->title,
                 'user_id' => $f->user_id,
-                'company' => optional($f->user)->company_name,
             ];
         })->values()->all();
     @endphp
@@ -96,14 +95,17 @@
 
         {{-- Form-wise and day-wise --}}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <x-card title="Form-wise Collection (Paid)">
+            <x-card title="Form-wise Summary">
                 <div class="overflow-x-auto -mx-6 -my-6">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Form</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Registrations</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Paid</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pending</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Collected</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customers</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -115,11 +117,17 @@
                                             <div class="text-xs text-gray-500">{{ $row->company }}</div>
                                         @endif
                                     </td>
-                                    <td class="px-6 py-3 text-sm text-gray-900">{{ $row->cnt }}</td>
+                                    <td class="px-6 py-3 text-sm text-gray-900">{{ $row->registrations }}</td>
+                                    <td class="px-6 py-3 text-sm text-gray-900">{{ (int) $row->paid_count }}</td>
+                                    <td class="px-6 py-3 text-sm text-gray-900">{{ (int) $row->pending_count }}</td>
                                     <td class="px-6 py-3 text-sm text-gray-900 whitespace-nowrap">₹{{ number_format($row->total, 2) }}</td>
+                                    <td class="px-6 py-3 text-sm whitespace-nowrap">
+                                        <a href="{{ route('reports.index', array_filter(['merchant_id' => $isAdmin ? $row->user_id : null, 'form_id' => $row->form_id])) }}"
+                                           class="text-indigo-600 hover:underline">View customers</a>
+                                    </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="3" class="px-6 py-6 text-center text-gray-500">No paid payments.</td></tr>
+                                <tr><td colspan="6" class="px-6 py-6 text-center text-gray-500">No registrations.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
@@ -152,67 +160,61 @@
             </x-card>
         </div>
 
-        {{-- Detailed list --}}
-        @unless ($selectedForm)
-            <p class="mb-2 text-xs text-gray-500">
-                Select {{ $isAdmin ? 'a merchant and a form' : 'a form' }} to see customer details in the table and in the CSV export.
-            </p>
-        @endunless
-        <x-card title="Transactions">
-            <x-slot name="action">
-                <a href="{{ route('reports.export', request()->query()) }}"
-                   class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap">
-                    Export CSV
-                </a>
-            </x-slot>
-            <div class="overflow-x-auto -mx-6 -my-6">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                            @if ($isAdmin)
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Merchant</th>
-                            @endif
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Form</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment ID</th>
-                            @if ($selectedForm)
+        {{-- Customers: only when one form is chosen --}}
+        @if ($selectedForm)
+            <x-card :title="'Customers - ' . $selectedForm->title">
+                <x-slot name="action">
+                    <a href="{{ route('reports.export', request()->query()) }}"
+                       class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap">
+                        Export CSV
+                    </a>
+                </x-slot>
+
+                <div class="overflow-x-auto -mx-6 -my-6">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Ref No.</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                                 @foreach ($selectedForm->fields as $field)
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">{{ $field->label }}</th>
                                 @endforeach
-                            @endif
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        @forelse ($submissions as $s)
-                            <tr class="hover:bg-gray-50">
-                                <td class="px-6 py-3 text-sm text-gray-600 whitespace-nowrap">{{ $s->created_at->format('d M Y, h:i A') }}</td>
-                                @if ($isAdmin)
-                                    <td class="px-6 py-3 text-sm text-gray-600">{{ $s->form->user->company_name }}</td>
-                                @endif
-                                <td class="px-6 py-3 text-sm text-gray-900">{{ $s->form->title }}</td>
-                                <td class="px-6 py-3 text-sm text-gray-900 whitespace-nowrap">₹{{ $s->amount }}</td>
-                                <td class="px-6 py-3 text-sm"><x-badge :status="$s->payment_status" /></td>
-                                <td class="px-6 py-3 text-xs font-mono text-gray-600">{{ $s->razorpay_payment_id }}</td>
-                                @if ($selectedForm)
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            @forelse ($submissions as $s)
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-3 text-sm text-gray-600">{{ $s->id }}</td>
+                                    <td class="px-6 py-3 text-sm text-gray-600 whitespace-nowrap">{{ $s->created_at->format('d M Y, h:i A') }}</td>
                                     @foreach ($selectedForm->fields as $field)
                                         <td class="px-6 py-3 text-sm text-gray-900">{{ $s->answer($field) }}</td>
                                     @endforeach
-                                @endif
-                            </tr>
-                        @empty
-                            <tr><td colspan="{{ ($isAdmin ? 6 : 5) + ($selectedForm ? $selectedForm->fields->count() : 0) }}" class="px-6 py-6 text-center text-gray-500">No transactions found.</td></tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </x-card>
+                                    <td class="px-6 py-3 text-sm text-gray-900 whitespace-nowrap">₹{{ $s->amount }}</td>
+                                    <td class="px-6 py-3 text-sm"><x-badge :status="$s->payment_status" /></td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="{{ $selectedForm->fields->count() + 4 }}" class="px-6 py-6 text-center text-gray-500">No customers found.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </x-card>
 
-        <div class="mt-4">
-            {{ $submissions->links() }}
-        </div>
+            <div class="mt-4 text-sm text-gray-500">{{ $submissions->total() }} registration(s)</div>
+            <div class="mt-2">{{ $submissions->links() }}</div>
+        @else
+            <x-card>
+                <p class="text-sm text-gray-600">
+                    Select {{ $isAdmin ? 'a merchant and a form' : 'a form' }} above, or use "View customers" in the Form-wise Summary, to see what each customer filled in.
+                </p>
+            </x-card>
+        @endif
     </div>
+
     <script>
         function reportFilters(cfg) {
             return {

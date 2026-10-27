@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Form;
 use App\Models\FormField;
 use App\Models\FormPaymentConfig;
+use App\Models\FormSubmission;
 use App\Models\User;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
@@ -100,7 +102,7 @@ class FormController extends Controller
     public function store(Request $request)
     {
         $validated = $this->validateForm($request);
-        $rows = $this->parseFields($request);
+        $rows = $this->parseFields($request, null);
 
         $form = DB::transaction(function () use ($validated, $rows) {
             $form = Form::create([
@@ -129,15 +131,25 @@ class FormController extends Controller
         $merchants = User::role('merchant')->orderBy('company_name')->get();
         $form->load('fields');
 
-        return view('admin.forms.edit', compact('form', 'merchants'));
+        // How many customers have answered each custom field
+        $answered = [];
+        foreach ($form->fields as $field) {
+            if (! $field->is_system) {
+                $answered[$field->key] = $this->answeredCount($form->id, $field->key);
+            }
+        }
+
+        return view('admin.forms.edit', compact('form', 'merchants', 'answered'));
     }
 
     public function update(Request $request, Form $form)
     {
         $validated = $this->validateForm($request);
-        $rows = $this->parseFields($request);
+        $rows = $this->parseFields($request, $form);
 
         DB::transaction(function () use ($validated, $form, $rows) {
+            $before = $this->snapshot($form);
+
             $data = [
                 'user_id' => $validated['user_id'],
                 'title' => $validated['title'],
@@ -153,7 +165,19 @@ class FormController extends Controller
 
             $form->update($data);
 
-            $this->syncFields($form, $rows);
+            $changes = $this->syncFields($form, $rows);
+
+            // Open forms in customers' browsers become stale when the fields change
+            if ($before !== $this->snapshot($form)) {
+                $form->increment('fields_version');
+            }
+
+            if ($changes) {
+                AuditLog::record('form.fields_changed', null, [
+                    'form_id' => $form->id,
+                    'changes' => $changes,
+                ]);
+            }
         });
 
         return redirect()->route('admin.forms.payment', $form)
@@ -334,7 +358,7 @@ class FormController extends Controller
      * Read the submitted field rows and validate the custom ones.
      * System rows (Email, Mobile) only carry their key, nothing else is trusted.
      */
-    private function parseFields(Request $request): array
+    private function parseFields(Request $request, ?Form $form): array
     {
         $request->validate([
             'fields' => ['nullable', 'array', 'max:50'],
@@ -344,6 +368,7 @@ class FormController extends Controller
 
         foreach (array_values((array) $request->input('fields', [])) as $row) {
             $row = (array) $row;
+            $choice = $row['label_change'] ?? null;
 
             $rows[] = [
                 'key' => trim((string) ($row['key'] ?? '')),
@@ -352,6 +377,7 @@ class FormController extends Controller
                 'options' => $row['options'] ?? null,
                 'is_required' => isset($row['is_required']),
                 'is_readonly' => isset($row['is_readonly']),
+                'label_change' => in_array($choice, ['wording', 'new'], true) ? $choice : null,
             ];
         }
 
@@ -370,7 +396,11 @@ class FormController extends Controller
             'fields.*.options' => 'field options',
         ]);
 
-        $validator->after(function ($v) use ($custom) {
+        $active = $form
+            ? FormField::where('form_id', $form->id)->whereNull('archived_at')->get()->keyBy('key')
+            : collect();
+
+        $validator->after(function ($v) use ($custom, $form, $active) {
             $seen = [];
 
             foreach ($custom as $i => $r) {
@@ -388,6 +418,26 @@ class FormController extends Controller
                 if (in_array($r['type'], self::OPTION_TYPES, true) && $this->parseOptions($r['options']) === null) {
                     $v->errors()->add("fields.$i.options", 'Enter at least one option for "' . $r['label'] . '".');
                 }
+
+                // Rules for a field that customers have already answered
+                $field = $r['key'] !== '' ? $active->get($r['key']) : null;
+
+                if ($form && $field && ! $field->is_system) {
+                    $count = $this->answeredCount($form->id, $field->key);
+
+                    if ($count > 0) {
+                        $labelChanged = $r['label'] !== $field->label;
+                        $typeChanged = $r['type'] !== $field->type;
+
+                        if (($labelChanged || $typeChanged) && $r['label_change'] === null) {
+                            $v->errors()->add("fields.$i.label", $count . ' customer(s) have answered "' . $field->label . '". Choose: same question (wording fix) or new question.');
+                        }
+
+                        if ($typeChanged && $r['label_change'] !== 'new') {
+                            $v->errors()->add("fields.$i.type", 'The type can only change as a new question, because old answers would lose their meaning.');
+                        }
+                    }
+                }
             }
         });
 
@@ -397,15 +447,21 @@ class FormController extends Controller
     }
 
     /**
-     * Save the fields. Existing fields keep their key (and their id),
-     * so customer data stays linked even when a label is renamed.
+     * Save the fields. Existing fields keep their key (and their id).
+     * Fields with answers are archived, never deleted.
+     * Returns a list of readable changes for the audit log.
      */
-    private function syncFields(Form $form, array $rows): void
+    private function syncFields(Form $form, array $rows): array
     {
         $this->ensureSystemFields($form);
 
-        $existing = FormField::where('form_id', $form->id)->get()->keyBy('key');
+        $existing = FormField::where('form_id', $form->id)
+            ->whereNull('archived_at')
+            ->get()
+            ->keyBy('key');
+
         $keptIds = [];
+        $changes = [];
 
         foreach ($rows as $index => $row) {
             if (in_array($row['key'], self::SYSTEM_KEYS, true)) {
@@ -434,25 +490,62 @@ class FormController extends Controller
             $field = $row['key'] !== '' ? $existing->get($row['key']) : null;
 
             if ($field && ! $field->is_system) {
-                $field->update($data);
+                $isNewQuestion = $row['label_change'] === 'new'
+                    && $this->answeredCount($form->id, $field->key) > 0;
+
+                if ($isNewQuestion) {
+                    // Old field is hidden from the form but its data stays
+                    $field->update(['archived_at' => now()]);
+                    $changes[] = 'archived "' . $field->label . '" (replaced by a new question)';
+
+                    $field = FormField::create($data + [
+                        'form_id' => $form->id,
+                        'key' => $this->newKey($form),
+                        'is_system' => false,
+                    ]);
+                    $changes[] = 'added "' . $row['label'] . '"';
+                } else {
+                    if ($field->label !== $row['label']) {
+                        $changes[] = 'renamed "' . $field->label . '" to "' . $row['label'] . '"';
+                    }
+                    if ($field->type !== $row['type']) {
+                        $changes[] = 'changed type of "' . $row['label'] . '" from ' . $field->type . ' to ' . $row['type'];
+                    }
+
+                    $field->update($data);
+                }
             } else {
                 $field = FormField::create($data + [
                     'form_id' => $form->id,
                     'key' => $this->newKey($form),
                     'is_system' => false,
                 ]);
+                $changes[] = 'added "' . $row['label'] . '"';
             }
 
             $keptIds[] = $field->id;
         }
 
-        // Custom fields that were removed in the form are deleted
-        FormField::where('form_id', $form->id)
+        // Fields that were removed on the page
+        $removed = FormField::where('form_id', $form->id)
             ->where('is_system', false)
+            ->whereNull('archived_at')
             ->whereNotIn('id', $keptIds)
-            ->delete();
+            ->get();
+
+        foreach ($removed as $field) {
+            if ($this->answeredCount($form->id, $field->key) > 0) {
+                $field->update(['archived_at' => now()]);
+                $changes[] = 'removed (archived) "' . $field->label . '"';
+            } else {
+                $field->delete();
+                $changes[] = 'removed "' . $field->label . '"';
+            }
+        }
 
         $this->renumber($form);
+
+        return $changes;
     }
 
     /**
@@ -490,11 +583,12 @@ class FormController extends Controller
     }
 
     /**
-     * Make the order 0, 1, 2, ... without gaps.
+     * Make the order of active fields 0, 1, 2, ... without gaps.
      */
     private function renumber(Form $form): void
     {
         FormField::where('form_id', $form->id)
+            ->whereNull('archived_at')
             ->orderBy('order')
             ->orderBy('id')
             ->get()
@@ -503,6 +597,32 @@ class FormController extends Controller
                     $field->update(['order' => $i]);
                 }
             });
+    }
+
+    /**
+     * How many submissions have a real answer for this field key.
+     * Keys are generated by us (letters, digits, underscore), so the JSON path is safe.
+     */
+    private function answeredCount(int $formId, string $key): int
+    {
+        return FormSubmission::where('form_id', $formId)
+            ->whereRaw("JSON_TYPE(JSON_EXTRACT(data, ?)) <> 'NULL'", ['$."' . $key . '"'])
+            ->count();
+    }
+
+    /**
+     * Fingerprint of the active fields. If it changes, the form version goes up.
+     */
+    private function snapshot(Form $form): string
+    {
+        return md5(json_encode(
+            FormField::where('form_id', $form->id)
+                ->whereNull('archived_at')
+                ->orderBy('order')
+                ->orderBy('id')
+                ->get(['key', 'label', 'type', 'options', 'is_required', 'is_readonly'])
+                ->toArray()
+        ));
     }
 
     private function newKey(Form $form): string

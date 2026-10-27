@@ -6,6 +6,8 @@ use App\Models\Form;
 use App\Models\FormField;
 use App\Models\FormSubmission;
 use Illuminate\Http\Request;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Razorpay\Api\Api;
@@ -158,48 +160,110 @@ class FormSubmissionController extends Controller
             ? $form->fixed_amount
             : round((float) $validated['custom_amount'], 2);
 
-        $submission = FormSubmission::create([
-            'form_id' => $form->id,
-            'data' => $answers,
-            'field_labels' => $labels,
-            'customer_email' => $answers[FormField::KEY_EMAIL] ?? null,
-            'customer_mobile' => $answers[FormField::KEY_MOBILE] ?? null,
-            'amount' => $amount,
-            'payment_status' => 'pending',
-        ]);
+        $email = $answers[FormField::KEY_EMAIL] ?? null;
+        $mobile = $answers[FormField::KEY_MOBILE] ?? null;
+
+        // One request at a time per customer, so a quick double click cannot make two records
+        $lock = Cache::lock('submit:' . $form->id . ':' . md5($email . '|' . $mobile), 15);
 
         try {
-            $api = new Api($config->razorpay_key_id, $config->razorpay_key_secret);
-
-            $razorpayOrder = $api->order->create([
-                'receipt' => $submission->uuid,
-                'amount' => (int) round($submission->amount * 100), // paise
-                'currency' => 'INR',
-                'notes' => [
-                    'form_submission_id' => $submission->id,
-                ],
-            ]);
-        } catch (Throwable $e) {
-            Log::error('razorpay_order_create_failed', [
-                'form_id' => $form->id,
-                'message' => $e->getMessage(),
-            ]);
-
-            // No order means no payment, so do not leave an empty record behind
-            $submission->delete();
-
+            $lock->block(5);
+        } catch (LockTimeoutException $e) {
             return back()->withInput()
-                ->withErrors(['form' => 'We could not start the payment. Please try again in a moment.']);
+                ->withErrors(['form' => 'Your request is already being processed. Please wait a moment.']);
         }
 
-        $submission->update(['razorpay_order_id' => $razorpayOrder->id]);
+        try {
+            $submission = $this->reusablePending($form, $answers, $amount, $email, $mobile);
+
+            if ($submission) {
+                // Same customer, same answers, nothing paid yet: open the same order again
+                $orderId = $submission->razorpay_order_id;
+            } else {
+                $submission = FormSubmission::create([
+                    'form_id' => $form->id,
+                    'data' => $answers,
+                    'field_labels' => $labels,
+                    'customer_email' => $email,
+                    'customer_mobile' => $mobile,
+                    'amount' => $amount,
+                    'payment_status' => 'pending',
+                ]);
+
+                try {
+                    $api = new Api($config->razorpay_key_id, $config->razorpay_key_secret);
+
+                    $razorpayOrder = $api->order->create([
+                        'receipt' => $submission->uuid,
+                        'amount' => (int) round($submission->amount * 100), // paise
+                        'currency' => 'INR',
+                        'notes' => [
+                            'form_submission_id' => $submission->id,
+                        ],
+                    ]);
+                } catch (Throwable $e) {
+                    Log::error('razorpay_order_create_failed', [
+                        'form_id' => $form->id,
+                        'message' => $e->getMessage(),
+                    ]);
+
+                    // No order means no payment, so do not leave an empty record behind
+                    $submission->delete();
+
+                    return back()->withInput()
+                        ->withErrors(['form' => 'We could not start the payment. Please try again in a moment.']);
+                }
+
+                $submission->update(['razorpay_order_id' => $razorpayOrder->id]);
+                $orderId = $razorpayOrder->id;
+            }
+        } finally {
+            $lock->release();
+        }
 
         return view('public.form-checkout', [
             'submission' => $submission,
             'form' => $form,
-            'razorpayOrderId' => $razorpayOrder->id,
+            'razorpayOrderId' => $orderId,
             'razorpayKeyId' => $config->razorpay_key_id,
         ]);
+    }
+
+    /**
+     * A recent unpaid record of the same customer with exactly the same answers and amount.
+     */
+    private function reusablePending(Form $form, array $answers, $amount, ?string $email, ?string $mobile): ?FormSubmission
+    {
+        if (! $email || ! $mobile) {
+            return null;
+        }
+
+        $candidates = FormSubmission::where('form_id', $form->id)
+            ->where('payment_status', 'pending')
+            ->where('customer_email', $email)
+            ->where('customer_mobile', $mobile)
+            ->whereNotNull('razorpay_order_id')
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->latest()
+            ->get();
+
+        foreach ($candidates as $c) {
+            $sameAmount = abs((float) $c->amount - (float) $amount) < 0.001;
+
+            if ($sameAmount && $this->sameAnswers($c->data ?? [], $answers)) {
+                return $c;
+            }
+        }
+
+        return null;
+    }
+
+    private function sameAnswers(array $a, array $b): bool
+    {
+        ksort($a);
+        ksort($b);
+
+        return json_encode($a) === json_encode($b);
     }
 
     /**

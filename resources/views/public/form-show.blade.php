@@ -27,7 +27,8 @@
                 </div>
             @endif
 
-            <form method="POST" action="{{ route('form.submit', $form->uuid) }}">
+            <form method="POST" action="{{ route('form.submit', $form->uuid) }}" id="register-form"
+                  onsubmit="var b = this.querySelector('button[type=submit]'); b.disabled = true; b.dataset.label = b.innerText; b.innerText = 'Please wait...';">
                 @csrf
                 <input type="hidden" name="fields_version" value="{{ $form->fields_version }}">
 
@@ -126,5 +127,15 @@
             </form>
         </div>
     </x-card>
+    <script>
+        // If the customer comes back with the browser Back button, make the button usable again
+        window.addEventListener('pageshow', function (e) {
+            var b = document.querySelector('#register-form button[type=submit]');
+            if (b && e.persisted) {
+                b.disabled = false;
+                b.innerText = b.dataset.label || 'Proceed to Pay';
+            }
+        });
+    </script>
 
 </x-public-layout>

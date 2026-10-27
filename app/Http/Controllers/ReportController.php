@@ -27,13 +27,20 @@ class ReportController extends Controller
             COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN amount END), 0) AS paid_total
         ")->first();
 
-        $byForm = (clone $query)->where('payment_status', 'paid')
-            ->select('form_id', DB::raw('COUNT(*) AS cnt'), DB::raw('SUM(amount) AS total'))
+        $byForm = (clone $query)
+            ->select(
+                'form_id',
+                DB::raw('COUNT(*) AS registrations'),
+                DB::raw("SUM(payment_status = 'paid') AS paid_count"),
+                DB::raw("SUM(payment_status = 'pending') AS pending_count"),
+                DB::raw("SUM(CASE WHEN payment_status = 'paid' THEN amount ELSE 0 END) AS total")
+            )
             ->groupBy('form_id')
             ->get()
             ->map(function ($row) use ($forms) {
                 $form = $forms->firstWhere('id', $row->form_id);
                 $row->title = optional($form)->title;
+                $row->user_id = optional($form)->user_id;
                 $row->company = optional(optional($form)->user)->company_name;
                 return $row;
             });
@@ -148,6 +155,11 @@ class ReportController extends Controller
 
         if (! empty($filters['form_id'])) {
             abort_unless($forms->contains('id', (int) $filters['form_id']), 404);
+        }
+
+        // A merchant with exactly one form sees it already selected
+        if (! $isAdmin && empty($filters['form_id']) && $forms->count() === 1) {
+            $filters['form_id'] = $forms->first()->id;
         }
 
         $query = FormSubmission::query()->whereIn('form_id', $forms->pluck('id'));

@@ -11,6 +11,12 @@
             'mobile' => ['label' => 'Mobile Number', 'type' => 'text'],
         ];
 
+        // What is saved in the database, found by key
+        $db = [];
+        foreach ($form->fields as $f) {
+            $db[(string) $f->key] = $f;
+        }
+
         $initialFields = [];
 
         if (old('fields') !== null) {
@@ -18,6 +24,7 @@
             foreach (array_values((array) old('fields')) as $f) {
                 $key = (string) ($f['key'] ?? '');
                 $isSystem = isset($systemDefs[$key]);
+                $saved = $db[$key] ?? null;
 
                 $initialFields[] = [
                     'key' => $key,
@@ -27,6 +34,10 @@
                     'options' => $f['options'] ?? '',
                     'is_required' => $isSystem ? true : isset($f['is_required']),
                     'is_readonly' => $isSystem ? false : isset($f['is_readonly']),
+                    'original_label' => $saved ? $saved->label : '',
+                    'original_type' => $saved ? $saved->type : '',
+                    'answered' => $saved ? (int) ($answered[$key] ?? 0) : 0,
+                    'label_change' => $f['label_change'] ?? '',
                 ];
             }
         } else {
@@ -39,6 +50,10 @@
                     'options' => is_array($f->options) ? implode(', ', $f->options) : '',
                     'is_required' => (bool) $f->is_required,
                     'is_readonly' => (bool) $f->is_readonly,
+                    'original_label' => $f->label,
+                    'original_type' => $f->type,
+                    'answered' => (int) ($answered[(string) $f->key] ?? 0),
+                    'label_change' => '',
                 ];
             }
 
@@ -56,6 +71,10 @@
                         'options' => '',
                         'is_required' => true,
                         'is_readonly' => false,
+                        'original_label' => $def['label'],
+                        'original_type' => $def['type'],
+                        'answered' => 0,
+                        'label_change' => '',
                     ];
                 }
             }
@@ -81,7 +100,7 @@
 
             @if ($form->is_complete && $form->is_active)
                 <div class="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
-                    ⚠ This form is live. Changing fields can break forms already open in customers' browsers. Set the form to Inactive first, then edit.
+                    ⚠ This form is live. Customers who already have the form open will be asked to reload it after you save. Set the form to Inactive first if you are making big changes.
                 </div>
             @endif
 
@@ -166,7 +185,8 @@
                 <x-card title="Form Fields" class="mb-6">
                     <p class="text-xs text-gray-500 mb-4">
                         Email and Mobile Number are part of every form and cannot be changed or removed.
-                        Add any other fields you need below.
+                        A field that customers have already answered can be renamed only to fix wording.
+                        If the question itself changes, choose "New question" and the old field is archived with its data.
                     </p>
 
                     <div class="space-y-3">
@@ -177,11 +197,17 @@
                                 <div class="flex items-center justify-between mb-3">
                                     <span class="text-xs font-semibold uppercase text-gray-500" x-text="'Field ' + (index + 1)"></span>
 
-                                    <span x-show="field.is_system"
-                                          class="text-xs font-medium text-indigo-700 bg-indigo-100 rounded-full px-2 py-0.5">Fixed field</span>
+                                    <div class="flex items-center gap-3">
+                                        <span x-show="field.is_system"
+                                              class="text-xs font-medium text-indigo-700 bg-indigo-100 rounded-full px-2 py-0.5">Fixed field</span>
 
-                                    <button type="button" @click="removeField(index)" x-show="!field.is_system"
-                                            class="text-red-600 hover:underline text-sm">Remove</button>
+                                        <span x-show="!field.is_system && field.answered > 0"
+                                              class="text-xs font-medium text-gray-700 bg-gray-200 rounded-full px-2 py-0.5"
+                                              x-text="field.answered + ' answer(s)'"></span>
+
+                                        <button type="button" @click="removeField(index)" x-show="!field.is_system"
+                                                class="text-red-600 hover:underline text-sm">Remove</button>
+                                    </div>
                                 </div>
 
                                 {{-- System field: only the key is sent --}}
@@ -230,6 +256,24 @@
                                                 </select>
                                                 <p class="text-red-600 text-sm mt-1" x-show="errorFor(index, 'type')" x-text="errorFor(index, 'type')"></p>
                                             </div>
+                                        </div>
+
+                                        {{-- Asked only when an answered field is renamed or its type changes --}}
+                                        <div class="mb-3 bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm"
+                                             x-show="needsChoice(field)">
+                                            <div class="font-medium text-yellow-900 mb-2">
+                                                <span x-text="field.answered"></span> customer(s) have answered this field. What is this change?
+                                            </div>
+                                            <label class="flex items-start mb-1 text-gray-800">
+                                                <input type="radio" :name="'fields['+index+'][label_change]'" value="wording" x-model="field.label_change"
+                                                       class="mt-1 mr-2 text-indigo-600 focus:ring-indigo-500">
+                                                <span><strong>Same question</strong>, I am only fixing the wording. Old answers stay with this field.</span>
+                                            </label>
+                                            <label class="flex items-start text-gray-800">
+                                                <input type="radio" :name="'fields['+index+'][label_change]'" value="new" x-model="field.label_change"
+                                                       class="mt-1 mr-2 text-indigo-600 focus:ring-indigo-500">
+                                                <span><strong>New question.</strong> The old field is archived (hidden from the form, its data is kept in reports) and a new field is created.</span>
+                                            </label>
                                         </div>
 
                                         <div class="mb-3" x-show="['dropdown', 'radio', 'checkbox'].includes(field.type)">
@@ -289,17 +333,35 @@
                     return e ? e[name] : '';
                 },
 
+                // Answered field whose label or type was changed
+                needsChoice(field) {
+                    return field.answered > 0
+                        && (field.label.trim() !== field.original_label || field.type !== field.original_type);
+                },
+
                 addField() {
                     this.fields.push({
                         key: '', is_system: false, label: '', type: 'text',
                         options: '', is_required: false, is_readonly: false,
+                        original_label: '', original_type: '', answered: 0, label_change: '',
                     });
                 },
 
                 removeField(index) {
-                    if (!this.fields[index].is_system) {
-                        this.fields.splice(index, 1);
+                    const f = this.fields[index];
+
+                    if (f.is_system) {
+                        return;
                     }
+
+                    if (f.answered > 0 && !confirm(
+                        f.answered + ' customer(s) have answered "' + f.original_label + '". ' +
+                        'The field will be archived: hidden from the form, but its data stays in reports. Continue?'
+                    )) {
+                        return;
+                    }
+
+                    this.fields.splice(index, 1);
                 },
             };
         }
