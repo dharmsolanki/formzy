@@ -166,7 +166,7 @@
                 <x-slot name="action">
                     <a href="{{ route('reports.export', request()->query()) }}"
                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap">
-                        Export CSV
+                        Export Excel
                     </a>
                 </x-slot>
 
@@ -205,6 +205,10 @@
             </x-card>
 
             <div class="mt-4 text-sm text-gray-500">{{ $submissions->total() }} registration(s)</div>
+            <div class="mt-1 text-xs text-gray-500">
+                The Excel file has the same filters. Sheet 1 has the current fields of this form.
+                If any field was removed from the form, its old answers are in a second sheet named "Removed fields".
+            </div>
             <div class="mt-2">{{ $submissions->links() }}</div>
         @else
             <x-card>

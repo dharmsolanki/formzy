@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Form;
 use App\Models\FormSubmission;
 use App\Models\User;
+use App\Services\ReportExcel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Support\Str;
 
 class ReportController extends Controller
 {
@@ -60,55 +62,35 @@ class ReportController extends Controller
         ));
     }
 
-    public function export(Request $request): StreamedResponse
+    /**
+     * Excel file: Sheet 1 has the current fields, Sheet 2 the removed fields.
+     */
+    public function export(Request $request, ReportExcel $excel)
     {
         [$isAdmin, $filters, , , , $query] = $this->resolve($request);
 
-        $selectedForm = ! empty($filters['form_id'])
-            ? Form::with('fields')->find($filters['form_id'])
-            : null;
-
-        $labels = $selectedForm ? $selectedForm->fields->pluck('label')->all() : [];
-
-        $head = ['Date'];
-        if ($isAdmin) {
-            $head[] = 'Merchant';
+        if (empty($filters['form_id'])) {
+            return redirect()->route('reports.index', $request->query())
+                ->withErrors(['export' => 'Select a form first. The Excel file has one column for each field of that form.']);
         }
-        $head = array_merge($head, ['Form', 'Amount', 'Status', 'Payment ID'], $labels);
 
-        $filename = 'report-' . now()->format('Ymd-His') . '.csv';
+        // resolve() has already checked that this form belongs to the allowed set
+        $form = Form::with('user')->findOrFail($filters['form_id']);
 
-        return response()->streamDownload(function () use ($query, $head, $labels, $isAdmin) {
-            $out = fopen('php://output', 'w');
-            fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+        @set_time_limit(120);
 
-            fputcsv($out, $head);
+        $path = $excel->build($form, $query, $isAdmin);
 
-            $query->with('form.user')->chunkByIdDesc(200, function ($rows) use ($out, $labels, $isAdmin) {
-                foreach ($rows as $s) {
-                    $line = [$s->created_at->format('Y-m-d H:i:s')];
+        AuditLog::record('report.export', null, [
+            'form_id' => $form->id,
+            'filters' => array_keys(array_filter($filters, fn ($v) => $v !== null && $v !== '')),
+        ]);
 
-                    if ($isAdmin) {
-                        $line[] = $this->cell($s->form->user->company_name);
-                    }
+        $filename = (Str::slug($form->title) ?: 'report') . '-' . now()->format('Ymd-His') . '.xlsx';
 
-                    $line[] = $this->cell($s->form->title);
-                    $line[] = $s->amount;
-                    $line[] = $s->payment_status;
-                    $line[] = $this->cell($s->razorpay_payment_id);
-
-                    foreach ($labels as $label) {
-                        $value = $s->answerByLabel($label);
-                        $value = is_array($value) ? implode(', ', $value) : (string) $value;
-                        $line[] = $this->cell($value);
-                    }
-
-                    fputcsv($out, $line);
-                }
-            });
-
-            fclose($out);
-        }, $filename, ['Content-Type' => 'text/csv']);
+        return response()->download($path, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
     }
 
     /**
@@ -189,19 +171,5 @@ class ReportController extends Controller
         }
 
         return $query;
-    }
-
-    /**
-     * Stop CSV formula injection (cells starting with = + - @).
-     */
-    private function cell(?string $value): string
-    {
-        $value = (string) $value;
-
-        if ($value !== '' && in_array($value[0], ['=', '+', '-', '@'], true)) {
-            return "'" . $value;
-        }
-
-        return $value;
     }
 }
