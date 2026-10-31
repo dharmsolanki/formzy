@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->validateCsrfTokens(except: [
             'webhooks/razorpay/*',
+            'f/*',   // public form submit and payment callback (customers have no login session)
         ]);
 
         $middleware->web(append: [

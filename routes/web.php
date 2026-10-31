@@ -85,6 +85,8 @@ Route::post('/f/{uuid}', [FormSubmissionController::class, 'store'])
     ->name('form.submit');
 Route::post('/f/{uuid}/payment-callback', [FormSubmissionController::class, 'paymentCallback'])
     ->name('form.payment.callback');
+Route::get('/f/{uuid}/payment-callback', [FormSubmissionController::class, 'callbackRedirect'])
+    ->middleware('throttle:30,1');
 
 Route::get('/receipt/{uuid}', [FormSubmissionController::class, 'receipt'])
     ->middleware('throttle:30,1')

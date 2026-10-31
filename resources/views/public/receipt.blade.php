@@ -5,7 +5,7 @@
     </x-slot>
 
     <div class="flex justify-end gap-3 mb-4 print:hidden">
-        <a href="{{ url()->previous() }}" class="text-sm text-gray-600 hover:text-gray-900 self-center">&larr; Back</a>
+        <a href="{{ route('form.public', $submission->form->uuid) }}" class="text-sm text-gray-600 hover:text-gray-900 self-center">&larr; Back to form</a>
         <button type="button" onclick="window.print()"
             class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium">
             Print / Save as PDF

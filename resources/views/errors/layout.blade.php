@@ -3,7 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>@yield('title')</title>
+    <title>@yield('title') - {{ config('app.name', 'Formzy') }}</title>
+    @include('layouts.partials.favicon')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
@@ -11,8 +12,15 @@
         <div class="bg-white shadow rounded-lg p-8">
             <div class="text-5xl font-bold text-gray-300 mb-2">@yield('code')</div>
             <h1 class="text-xl font-semibold text-gray-900 mb-2">@yield('heading')</h1>
-            <p class="text-gray-600 mb-6">@yield('message')</p>
-            <a href="{{ url('/') }}" class="inline-block bg-gray-800 text-white px-4 py-2 rounded-md text-sm">Go to Home</a>
+            <p class="text-gray-600">@yield('message')</p>
+
+            {{-- Only staff who are logged in get a button. Customers never see a link to login. --}}
+            @auth
+                <a href="{{ route('dashboard') }}"
+                   class="mt-6 inline-block bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                    Go to Dashboard
+                </a>
+            @endauth
         </div>
     </div>
 </body>

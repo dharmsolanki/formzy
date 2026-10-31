@@ -53,10 +53,12 @@ class FormSubmissionController extends Controller
     {
         $form = Form::where('uuid', $uuid)->with(['fields', 'paymentConfig', 'user'])->firstOrFail();
 
-        if (! $form->is_complete
+        if (
+            ! $form->is_complete
             || ! $form->is_active
             || ! $form->user->is_active
-            || ($form->expires_at && $form->expires_at->isPast())) {
+            || ($form->expires_at && $form->expires_at->isPast())
+        ) {
             return back()->withErrors(['form' => 'This form is no longer accepting responses.']);
         }
 
@@ -304,6 +306,27 @@ class FormSubmissionController extends Controller
         ]);
 
         return view('public.payment-success', compact('submission'));
+    }
+
+    /**
+     * Someone opened the payment-callback address directly (Back button, old link).
+     * Send them to the form page, never show a "method not allowed" error.
+     */
+    public function callbackRedirect(string $uuid)
+    {
+        // A reference (submission uuid): go to the form of that customer
+        $submission = FormSubmission::where('uuid', $uuid)->with('form')->first();
+
+        if ($submission && $submission->form) {
+            return redirect()->route('form.public', $submission->form->uuid);
+        }
+
+        // A form uuid: go to that form
+        $form = Form::where('uuid', $uuid)->first();
+
+        abort_unless($form, 404);
+
+        return redirect()->route('form.public', $form->uuid);
     }
 
     /**
