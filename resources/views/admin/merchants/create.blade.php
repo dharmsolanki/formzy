@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('Create Merchant') }}
+            {{ __('Add Company') }}
         </h2>
     </x-slot>
 
@@ -50,7 +50,7 @@
 
                     <div class="flex justify-end gap-3 mt-6">
                         <a href="{{ route('admin.merchants.index') }}" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancel</a>
-                        <x-primary-button>{{ __('Create Merchant') }}</x-primary-button>
+                        <x-primary-button>{{ __('Create Company') }}</x-primary-button>
                     </div>
                 </form>
             </x-card>

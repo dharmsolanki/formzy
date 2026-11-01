@@ -2,11 +2,11 @@
     <x-slot name="header">
         <div class="flex justify-between items-center">
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ __('Merchants') }}
+                {{ __('Companies') }}
             </h2>
             <a href="{{ route('admin.merchants.create') }}"
                class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium">
-                + Add Merchant
+                + Add Company
             </a>
         </div>
     </x-slot>
@@ -89,7 +89,7 @@
                         @empty
                             <tr>
                                 <td colspan="6" class="px-6 py-6 text-center text-gray-500">
-                                    {{ ! empty($filters['q']) || ! empty($filters['status']) ? 'No merchants match these filters.' : 'No merchants yet.' }}
+                                    {{ ! empty($filters['q']) || ! empty($filters['status']) ? 'No companies match these filters.' : 'No companies yet.' }}
                                 </td>
                             </tr>
                         @endforelse
@@ -99,7 +99,7 @@
         </x-card>
 
         <div class="mt-4 flex items-center justify-between text-sm text-gray-500">
-            <span>{{ $merchants->total() }} merchant(s)</span>
+            <span>{{ $merchants->total() }} {{ \Illuminate\Support\Str::plural('company', $merchants->total()) }}</span>
         </div>
 
         <div class="mt-2">
