@@ -10,7 +10,7 @@
             <x-card>
                 <p class="text-sm text-gray-600 mb-4">
                     Set a new password for <strong>{{ $merchant->name }}</strong> ({{ $merchant->email }}).
-                    The merchant will be logged out from all devices.
+                    This company will be logged out from all devices.
                 </p>
 
                 <form method="POST" action="{{ route('admin.merchants.password.update', $merchant) }}">

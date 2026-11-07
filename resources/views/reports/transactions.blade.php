@@ -36,9 +36,9 @@
                   class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
 
                 <div>
-                    <x-input-label for="merchant_id" value="Merchant" />
+                    <x-input-label for="merchant_id" value="Company" />
                     <select name="merchant_id" id="merchant_id" x-ref="merchant" class="searchable mt-1 block w-full">
-                        <option value="">All merchants</option>
+                        <option value="">All companies</option>
                         @foreach ($merchants as $m)
                             <option value="{{ $m->id }}" {{ (string) ($filters['merchant_id'] ?? '') === (string) $m->id ? 'selected' : '' }}>{{ $m->company_name }}</option>
                         @endforeach
@@ -55,7 +55,7 @@
                     <input type="text" name="q" id="q" value="{{ $filters['q'] ?? '' }}" placeholder="At least 3 characters"
                            class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
                     <x-input-error :messages="$errors->get('q')" class="mt-1" />
-                    <p class="text-xs text-gray-500 mt-1">Needs a merchant, form or date range along with it.</p>
+                    <p class="text-xs text-gray-500 mt-1">Needs a company, form or date range along with it.</p>
                 </div>
 
                 <div>
@@ -104,7 +104,7 @@
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Merchant</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Form</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -188,7 +188,7 @@
                         valueField: 'id',
                         labelField: 'label',
                         searchField: ['label'],
-                        placeholder: 'Select merchant first',
+                        placeholder: 'Select company first',
                     });
 
                     this.load(String(cfg.form || ''));

@@ -30,9 +30,9 @@
 
                 @if ($isAdmin)
                     <div>
-                        <x-input-label for="merchant_id" value="Merchant" />
+                        <x-input-label for="merchant_id" value="Company" />
                         <select name="merchant_id" id="merchant_id" x-ref="merchant" class="searchable mt-1 block w-full">
-                            <option value="">All merchants</option>
+                            <option value="">All companies</option>
                             @foreach ($merchants as $m)
                                 <option value="{{ $m->id }}" {{ (string) ($filters['merchant_id'] ?? '') === (string) $m->id ? 'selected' : '' }}>{{ $m->company_name }}</option>
                             @endforeach
@@ -213,7 +213,7 @@
         @else
             <x-card>
                 <p class="text-sm text-gray-600">
-                    Select {{ $isAdmin ? 'a merchant and a form' : 'a form' }} above, or use "View customers" in the Form-wise Summary, to see what each customer filled in.
+                    Select {{ $isAdmin ? 'a company and a form' : 'a form' }} above, or use "View customers" in the Form-wise Summary, to see what each customer filled in.
                 </p>
             </x-card>
         @endif
@@ -262,7 +262,7 @@
                         valueField: 'id',
                         labelField: 'label',
                         searchField: ['label'],
-                        placeholder: cfg.isAdmin ? 'Select merchant first' : 'All forms',
+                        placeholder: cfg.isAdmin ? 'Select company first' : 'All forms',
                     });
 
                     this.refresh(String(cfg.form || ''));

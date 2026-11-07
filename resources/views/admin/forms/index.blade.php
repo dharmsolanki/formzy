@@ -39,9 +39,9 @@
                   class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
 
                 <div>
-                    <x-input-label for="merchant_id" value="Merchant" />
+                    <x-input-label for="merchant_id" value="Company" />
                     <select name="merchant_id" id="merchant_id" x-ref="merchant" class="searchable mt-1 block w-full">
-                        <option value="">All merchants</option>
+                        <option value="">All companies</option>
                         @foreach ($merchants as $m)
                             <option value="{{ $m->id }}" {{ (string) ($filters['merchant_id'] ?? '') === (string) $m->id ? 'selected' : '' }}>{{ $m->company_name }}</option>
                         @endforeach
@@ -83,7 +83,7 @@
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Merchant</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Link</th>
@@ -197,7 +197,7 @@
                         valueField: 'id',
                         labelField: 'label',
                         searchField: ['label'],
-                        placeholder: 'Select merchant first',
+                        placeholder: 'Select company first',
                     });
 
                     this.load(String(cfg.form || ''));

@@ -118,9 +118,9 @@
                 <x-card title="Basic Details" class="mb-6">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <x-input-label for="user_id" value="Merchant" />
+                            <x-input-label for="user_id" value="Company" />
                             <select name="user_id" id="user_id" required class="searchable mt-1 block w-full">
-                                <option value="">-- Select Merchant --</option>
+                                <option value="">-- Select Company --</option>
                                 @foreach ($merchants as $merchant)
                                     <option value="{{ $merchant->id }}" {{ old('user_id', $form->user_id) == $merchant->id ? 'selected' : '' }}>
                                         {{ $merchant->company_name }}

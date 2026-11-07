@@ -27,7 +27,7 @@
         {{-- Summary --}}
         <x-card title="Summary" class="mb-6">
             <dl class="text-sm divide-y divide-gray-100">
-                <div class="flex justify-between py-2"><dt class="text-gray-500">Merchant</dt><dd class="text-gray-900">{{ $submission->form->user->company_name }}</dd></div>
+                <div class="flex justify-between py-2"><dt class="text-gray-500">Company</dt><dd class="text-gray-900">{{ $submission->form->user->company_name }}</dd></div>
                 <div class="flex justify-between py-2"><dt class="text-gray-500">Form</dt><dd class="text-gray-900">{{ $submission->form->title }}</dd></div>
                 <div class="flex justify-between py-2"><dt class="text-gray-500">Amount</dt><dd class="font-semibold text-gray-900">₹{{ $submission->amount }}</dd></div>
                 <div class="flex justify-between py-2"><dt class="text-gray-500">Status (Formzy)</dt><dd><x-badge :status="$submission->payment_status" /></dd></div>
