@@ -2,6 +2,8 @@
 
     <x-merchant-brand :merchant="$form->user" />
 
+    <x-form-tabs :form="$form" active="register" />
+
     <x-card>
         <h1 class="text-2xl font-bold text-gray-900">{{ $form->title }}</h1>
 

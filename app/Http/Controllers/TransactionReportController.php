@@ -27,6 +27,14 @@ class TransactionReportController extends Controller
             'status'      => ['nullable', 'in:paid,pending,failed'],
             'from'        => ['nullable', 'date'],
             'to'          => ['nullable', 'date', 'after_or_equal:from'],
+        ], [], [
+            'q'           => 'customer data',
+            'ref'         => 'ID',
+            'merchant_id' => 'company',
+            'form_id'     => 'form',
+            'amount'      => 'amount',
+            'from'        => 'from date',
+            'to'          => 'to date',
         ]);
 
         $merchants = User::role('merchant')->orderBy('company_name')->get(['id', 'company_name']);
@@ -67,14 +75,50 @@ class TransactionReportController extends Controller
                 || ! empty($f['from']) || ! empty($f['to']);
 
             if (! empty($f['q'])) {
-                if (! $narrowed) {
+                $text = trim($f['q']);
+                $lower = mb_strtolower($text);
+
+                // Mobile: "+91 98765-43210", "09876543210" and "9876543210" are all the same
+                $looksLikePhone = preg_match('/^[\d\s\+\-\(\)]+$/', $text) === 1;
+                $digits = preg_replace('/\D/', '', $text);
+
+                if ($looksLikePhone) {
+                    if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+                        $digits = substr($digits, 2);
+                    } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+                        $digits = substr($digits, 1);
+                    }
+                }
+
+                $exactEmail = filter_var($lower, FILTER_VALIDATE_EMAIL) !== false;
+                $exactMobile = $looksLikePhone && strlen($digits) === 10;
+
+                // A full email or a full mobile number finds one customer, so no extra filter is needed
+                if (! $narrowed && ! $exactEmail && ! $exactMobile) {
                     throw ValidationException::withMessages([
-                        'q' => 'Select a merchant, form or date range to search customer data.',
+                        'q' => 'Select a company, form or date range to search by part of a name, email or mobile number. A full email or a full 10-digit mobile number needs no other filter.',
                     ]);
                 }
 
-                $term = '%' . addcslashes(mb_strtolower($f['q']), '%_\\') . '%';
-                $query->whereRaw('LOWER(CAST(data AS CHAR)) LIKE ?', [$term]);
+                if ($exactEmail) {
+                    $query->where('customer_email', $lower);
+                } elseif ($exactMobile) {
+                    $query->where('customer_mobile', $digits);
+                } elseif (str_contains($lower, '@')) {
+                    $query->where('customer_email', 'like', '%' . addcslashes($lower, '%_\\') . '%');
+                } elseif ($looksLikePhone) {
+                    if (strlen($digits) < 3) {
+                        throw ValidationException::withMessages([
+                            'q' => 'Enter at least 3 digits of the mobile number.',
+                        ]);
+                    }
+
+                    $query->where('customer_mobile', 'like', '%' . $digits . '%');
+                } else {
+                    // Names and other answers: only the answers are searched, not the field keys
+                    $term = '%' . addcslashes($lower, '%_\\') . '%';
+                    $query->whereRaw("JSON_SEARCH(LOWER(data), 'one', ?) IS NOT NULL", [$term]);
+                }
             }
 
             if (isset($f['amount']) && $f['amount'] !== null) {

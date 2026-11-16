@@ -123,7 +123,7 @@
                     </div>
 
                     <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-700">
-                        <div class="font-medium text-gray-900 mb-2">In the merchant's Razorpay Dashboard:</div>
+                        <div class="font-medium text-gray-900 mb-2">In the company's Razorpay Dashboard:</div>
                         <ol class="list-decimal list-inside space-y-1">
                             <li>Go to Settings → Webhooks → Add New Webhook</li>
                             <li>Paste the Webhook URL shown above</li>

@@ -84,7 +84,7 @@ class MerchantController extends Controller
         $merchant->assignRole('merchant');
 
         return redirect()->route('admin.merchants.index')
-            ->with('success', 'Merchant created successfully.');
+            ->with('success', 'Company created successfully.');
     }
 
     /**
@@ -174,6 +174,6 @@ class MerchantController extends Controller
         $merchant->update($data);
 
         return redirect()->route('admin.merchants.index')
-            ->with('success', 'Merchant updated successfully.');
+            ->with('success', 'Company updated successfully.');
     }
 }

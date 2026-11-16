@@ -11,6 +11,7 @@ use App\Http\Controllers\Merchant\DashboardController as MerchantDashboardContro
 use App\Http\Controllers\Merchant\FormController as MerchantFormController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\TransactionReportController;
+use App\Http\Controllers\ReceiptLookupController;
 
 Route::get('/', function () {
     if (auth()->check()) {
@@ -85,6 +86,13 @@ Route::post('/f/{uuid}', [FormSubmissionController::class, 'store'])
     ->name('form.submit');
 Route::post('/f/{uuid}/payment-callback', [FormSubmissionController::class, 'paymentCallback'])
     ->name('form.payment.callback');
+Route::get('/f/{uuid}/receipt', [ReceiptLookupController::class, 'show'])
+    ->middleware('throttle:60,1')
+    ->name('form.receipt.tab');
+
+Route::post('/f/{uuid}/receipt', [ReceiptLookupController::class, 'find'])
+    ->middleware('throttle:5,1')
+    ->name('form.receipt.find');
 Route::get('/f/{uuid}/payment-callback', [FormSubmissionController::class, 'callbackRedirect'])
     ->middleware('throttle:30,1');
 

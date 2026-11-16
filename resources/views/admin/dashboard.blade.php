@@ -10,7 +10,7 @@
 
             <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
                 <div class="bg-white shadow-sm sm:rounded-lg p-5">
-                    <div class="text-sm text-gray-500">Merchants</div>
+                    <div class="text-sm text-gray-500">Companies</div>
                     <div class="text-2xl font-semibold text-gray-900">{{ $stats['merchants'] }}</div>
                 </div>
                 <div class="bg-white shadow-sm sm:rounded-lg p-5">
@@ -44,7 +44,7 @@
                             <tr>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Form</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Merchant</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                             </tr>

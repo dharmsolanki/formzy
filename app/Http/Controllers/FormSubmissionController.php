@@ -33,6 +33,7 @@ class FormSubmissionController extends Controller
             return view('public.form-unavailable', [
                 'message' => 'This form is no longer accepting responses.',
                 'merchant' => $form->user,
+                'form' => $form,
             ]);
         }
 
@@ -40,6 +41,7 @@ class FormSubmissionController extends Controller
             return view('public.form-unavailable', [
                 'message' => 'Registration for this form has closed.',
                 'merchant' => $form->user,
+                'form' => $form,
             ]);
         }
 

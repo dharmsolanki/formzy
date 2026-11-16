@@ -55,7 +55,7 @@
                     <input type="text" name="q" id="q" value="{{ $filters['q'] ?? '' }}" placeholder="At least 3 characters"
                            class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
                     <x-input-error :messages="$errors->get('q')" class="mt-1" />
-                    <p class="text-xs text-gray-500 mt-1">Needs a company, form or date range along with it.</p>
+                    <p class="text-xs text-gray-500 mt-1">A full email or a full 10-digit mobile number needs nothing else. For part of a name, email or mobile number, also select a company, form or date range.</p>
                 </div>
 
                 <div>

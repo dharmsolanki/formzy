@@ -344,11 +344,13 @@ class FormController extends Controller
             'amount_type' => ['required', 'in:fixed,customer_entered'],
             'fixed_amount' => ['required_if:amount_type,fixed', 'nullable', 'numeric', 'min:1', 'max:500000', 'decimal:0,2'],
             'expires_at' => ['nullable', 'date', 'after:now'],
+        ], [], [
+            'user_id' => 'company',
         ]);
 
         $merchant = User::findOrFail($validated['user_id']);
         if (! $merchant->hasRole('merchant')) {
-            abort(422, 'Selected user is not a valid merchant.');
+            abort(422, 'Selected user is not a valid company.');
         }
 
         return $validated;

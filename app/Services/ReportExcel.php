@@ -39,7 +39,7 @@ class ReportExcel
 
             $head = ['Ref No.', 'Date'];
             if ($isAdmin) {
-                $head[] = 'Merchant';
+                $head[] = 'Company';
             }
             $head = array_merge($head, ['Amount', 'Status'], $active->pluck('label')->all());
 
