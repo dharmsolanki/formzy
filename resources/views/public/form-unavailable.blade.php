@@ -9,26 +9,6 @@
         <x-form-tabs :form="$form" active="register" />
     @endisset
 
-    {{-- Tabs only for a form that was live (closed, inactive or expired), never for a draft --}}
-    @isset($form)
-        <x-form-tabs :form="$form" active="register" />
-    @endisset
-
-    {{-- Tabs only for a form that was live (closed, inactive or expired), never for a draft --}}
-    @isset($form)
-        <x-form-tabs :form="$form" active="register" />
-    @endisset
-
-    {{-- Tabs only for a form that was live (closed, inactive or expired), never for a draft --}}
-    @isset($form)
-        <x-form-tabs :form="$form" active="register" />
-    @endisset
-
-    {{-- Tabs only for a form that was live (closed, inactive or expired), never for a draft --}}
-    @isset($form)
-        <x-form-tabs :form="$form" active="register" />
-    @endisset
-
     <x-card>
         <div class="text-center">
             <div class="mx-auto w-14 h-14 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-3xl">!</div>

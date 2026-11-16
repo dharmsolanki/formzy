@@ -21,6 +21,7 @@ class FormController extends Controller
     private const SYSTEM_KEYS = [FormField::KEY_EMAIL, FormField::KEY_MOBILE];
     private const RESERVED_LABELS = ['email', 'mobile number', 'mobile'];
     private const OPTION_TYPES = ['dropdown', 'radio', 'checkbox'];
+    private const PLACEHOLDER_TYPES = ['text', 'email', 'number'];
 
     public function index(Request $request)
     {
@@ -37,7 +38,7 @@ class FormController extends Controller
             abort_unless($merchants->contains('id', (int) $filters['merchant_id']), 404);
         }
 
-        // Form filter works only after a merchant is chosen
+        // Form filter works only after a company is chosen
         if (empty($filters['merchant_id'])) {
             $filters['form_id'] = null;
         }
@@ -79,7 +80,7 @@ class FormController extends Controller
     }
 
     /**
-     * JSON list of one merchant's forms (for the dependent dropdown).
+     * JSON list of one company's forms (for the dependent dropdown).
      */
     public function byMerchant(User $merchant)
     {
@@ -377,6 +378,9 @@ class FormController extends Controller
                 'label' => trim((string) ($row['label'] ?? '')),
                 'type' => $row['type'] ?? null,
                 'options' => $row['options'] ?? null,
+                'default_value' => trim((string) ($row['default_value'] ?? '')),
+                'placeholder' => trim((string) ($row['placeholder'] ?? '')),
+                'help_text' => trim((string) ($row['help_text'] ?? '')),
                 'is_required' => isset($row['is_required']),
                 'is_readonly' => isset($row['is_readonly']),
                 'label_change' => in_array($choice, ['wording', 'new'], true) ? $choice : null,
@@ -392,10 +396,16 @@ class FormController extends Controller
             'fields.*.label' => ['required', 'string', 'max:255'],
             'fields.*.type' => ['required', 'in:text,email,number,dropdown,radio,checkbox'],
             'fields.*.options' => ['nullable', 'string', 'max:2000'],
+            'fields.*.default_value' => ['nullable', 'string', 'max:1000'],
+            'fields.*.placeholder' => ['nullable', 'string', 'max:100'],
+            'fields.*.help_text' => ['nullable', 'string', 'max:200'],
         ], [], [
             'fields.*.label' => 'field label',
             'fields.*.type' => 'field type',
             'fields.*.options' => 'field options',
+            'fields.*.default_value' => 'default value',
+            'fields.*.placeholder' => 'placeholder',
+            'fields.*.help_text' => 'help text',
         ]);
 
         $active = $form
@@ -419,6 +429,19 @@ class FormController extends Controller
 
                 if (in_array($r['type'], self::OPTION_TYPES, true) && $this->parseOptions($r['options']) === null) {
                     $v->errors()->add("fields.$i.options", 'Enter at least one option for "' . $r['label'] . '".');
+                }
+
+                // Read-only needs something to show, because the customer cannot type in it
+                if ($r['is_readonly'] && $r['default_value'] === '') {
+                    $v->errors()->add("fields.$i.default_value", 'A read-only field needs a default value, because the customer cannot type in it.');
+                }
+
+                if ($r['default_value'] !== '') {
+                    $problem = $this->defaultProblem($r);
+
+                    if ($problem) {
+                        $v->errors()->add("fields.$i.default_value", $problem);
+                    }
                 }
 
                 // Rules for a field that customers have already answered
@@ -446,6 +469,42 @@ class FormController extends Controller
         $validator->validate();
 
         return $rows;
+    }
+
+    /**
+     * Is the default value fine for this type of field? Returns the problem, or null.
+     */
+    private function defaultProblem(array $r): ?string
+    {
+        $value = $r['default_value'];
+
+        switch ($r['type']) {
+            case 'email':
+                return filter_var($value, FILTER_VALIDATE_EMAIL) ? null : 'The default value must be a valid email address.';
+
+            case 'number':
+                return is_numeric($value) ? null : 'The default value must be a number.';
+
+            case 'dropdown':
+            case 'radio':
+                $options = $this->parseOptions($r['options']) ?? [];
+
+                return in_array($value, $options, true) ? null : 'The default value must be one of the options.';
+
+            case 'checkbox':
+                $options = $this->parseOptions($r['options']) ?? [];
+
+                foreach ($this->parseOptions($value) ?? [] as $picked) {
+                    if (! in_array($picked, $options, true)) {
+                        return 'Every default value must be one of the options. "' . $picked . '" is not.';
+                    }
+                }
+
+                return null;
+
+            default:
+                return null;
+        }
     }
 
     /**
@@ -484,6 +543,11 @@ class FormController extends Controller
                 'options' => in_array($row['type'], self::OPTION_TYPES, true)
                     ? $this->parseOptions($row['options'])
                     : null,
+                'default_value' => $this->cleanDefault($row),
+                'placeholder' => in_array($row['type'], self::PLACEHOLDER_TYPES, true) && $row['placeholder'] !== ''
+                    ? $row['placeholder']
+                    : null,
+                'help_text' => $row['help_text'] !== '' ? $row['help_text'] : null,
                 'is_required' => $row['is_required'],
                 'is_readonly' => $row['is_readonly'],
                 'order' => $index,
@@ -512,6 +576,12 @@ class FormController extends Controller
                     }
                     if ($field->type !== $row['type']) {
                         $changes[] = 'changed type of "' . $row['label'] . '" from ' . $field->type . ' to ' . $row['type'];
+                    }
+                    if (($field->default_value ?? null) !== $data['default_value']
+                        || ($field->placeholder ?? null) !== $data['placeholder']
+                        || ($field->help_text ?? null) !== $data['help_text']
+                        || (bool) $field->is_readonly !== $data['is_readonly']) {
+                        $changes[] = 'changed settings of "' . $row['label'] . '"';
                     }
 
                     $field->update($data);
@@ -548,6 +618,24 @@ class FormController extends Controller
         $this->renumber($form);
 
         return $changes;
+    }
+
+    /**
+     * Default value as it will be saved: empty becomes null, a checkbox list is tidied.
+     */
+    private function cleanDefault(array $row): ?string
+    {
+        if ($row['default_value'] === '') {
+            return null;
+        }
+
+        if ($row['type'] === 'checkbox') {
+            $list = $this->parseOptions($row['default_value']);
+
+            return $list ? implode(', ', $list) : null;
+        }
+
+        return $row['default_value'];
     }
 
     /**
@@ -622,7 +710,7 @@ class FormController extends Controller
                 ->whereNull('archived_at')
                 ->orderBy('order')
                 ->orderBy('id')
-                ->get(['key', 'label', 'type', 'options', 'is_required', 'is_readonly'])
+                ->get(['key', 'label', 'type', 'options', 'default_value', 'placeholder', 'help_text', 'is_required', 'is_readonly'])
                 ->toArray()
         ));
     }
