@@ -25,6 +25,9 @@
                     'label' => $isSystem ? $systemDefs[$key]['label'] : ($f['label'] ?? ''),
                     'type' => $isSystem ? $systemDefs[$key]['type'] : ($f['type'] ?? 'text'),
                     'options' => $f['options'] ?? '',
+                    'default_value' => $isSystem ? '' : ($f['default_value'] ?? ''),
+                    'placeholder' => $isSystem ? '' : ($f['placeholder'] ?? ''),
+                    'help_text' => $isSystem ? '' : ($f['help_text'] ?? ''),
                     'is_required' => $isSystem ? true : isset($f['is_required']),
                     'is_readonly' => $isSystem ? false : isset($f['is_readonly']),
                 ];
@@ -38,6 +41,9 @@
                     'label' => $def['label'],
                     'type' => $def['type'],
                     'options' => '',
+                    'default_value' => '',
+                    'placeholder' => '',
+                    'help_text' => '',
                     'is_required' => true,
                     'is_readonly' => false,
                 ];
@@ -47,7 +53,7 @@
         // Server errors use the position among custom fields (system rows are not counted)
         $fieldErrors = [];
         foreach ($errors->getMessages() as $k => $msgs) {
-            if (preg_match('/^fields\.(\d+)\.(label|type|options)$/', $k, $m)) {
+            if (preg_match('/^fields\.(\d+)\.(label|type|options|default_value|placeholder|help_text)$/', $k, $m)) {
                 $fieldErrors[(int) $m[1]][$m[2]] = $msgs[0];
             }
         }
@@ -211,6 +217,32 @@
                                             <p class="text-red-600 text-sm mt-1" x-show="errorFor(index, 'options')" x-text="errorFor(index, 'options')"></p>
                                         </div>
 
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                            <div>
+                                                <label class="text-sm text-gray-600">Default value (optional)</label>
+                                                <input type="text" :name="'fields['+index+'][default_value]'" x-model="field.default_value"
+                                                       class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                                <p class="text-xs text-gray-500 mt-1" x-text="defaultHint(field)"></p>
+                                                <p class="text-red-600 text-sm mt-1" x-show="errorFor(index, 'default_value')" x-text="errorFor(index, 'default_value')"></p>
+                                            </div>
+
+                                            <div x-show="['text', 'email', 'number'].includes(field.type)">
+                                                <label class="text-sm text-gray-600">Placeholder (optional)</label>
+                                                <input type="text" maxlength="100" :name="'fields['+index+'][placeholder]'" x-model="field.placeholder"
+                                                       placeholder="Example text shown inside the box"
+                                                       class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                                <p class="text-red-600 text-sm mt-1" x-show="errorFor(index, 'placeholder')" x-text="errorFor(index, 'placeholder')"></p>
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="text-sm text-gray-600">Help text (optional)</label>
+                                            <input type="text" maxlength="200" :name="'fields['+index+'][help_text]'" x-model="field.help_text"
+                                                   placeholder="A short line shown under the field"
+                                                   class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                            <p class="text-red-600 text-sm mt-1" x-show="errorFor(index, 'help_text')" x-text="errorFor(index, 'help_text')"></p>
+                                        </div>
+
                                         <div class="flex gap-6">
                                             <label class="flex items-center text-sm text-gray-700">
                                                 <input type="checkbox" :name="'fields['+index+'][is_required]'" value="1" x-model="field.is_required"
@@ -220,7 +252,7 @@
                                             <label class="flex items-center text-sm text-gray-700">
                                                 <input type="checkbox" :name="'fields['+index+'][is_readonly]'" value="1" x-model="field.is_readonly"
                                                        class="mr-2 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                                                Read-only
+                                                Read-only (needs a default value)
                                             </label>
                                         </div>
                                     </div>
@@ -260,10 +292,22 @@
                     return e ? e[name] : '';
                 },
 
+                defaultHint(field) {
+                    switch (field.type) {
+                        case 'email': return 'A valid email address.';
+                        case 'number': return 'A number.';
+                        case 'dropdown':
+                        case 'radio': return 'Must be one of the options above.';
+                        case 'checkbox': return 'One or more of the options above, separated by commas.';
+                        default: return 'Text that is already filled in for the customer.';
+                    }
+                },
+
                 addField() {
                     this.fields.push({
                         key: '', is_system: false, label: '', type: 'text',
-                        options: '', is_required: false, is_readonly: false,
+                        options: '', default_value: '', placeholder: '', help_text: '',
+                        is_required: false, is_readonly: false,
                     });
                 },
 

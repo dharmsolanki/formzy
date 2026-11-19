@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Form;
 use App\Models\FormField;
 use App\Models\FormSubmission;
-use Illuminate\Http\Request;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
@@ -55,12 +55,10 @@ class FormSubmissionController extends Controller
     {
         $form = Form::where('uuid', $uuid)->with(['fields', 'paymentConfig', 'user'])->firstOrFail();
 
-        if (
-            ! $form->is_complete
+        if (! $form->is_complete
             || ! $form->is_active
             || ! $form->user->is_active
-            || ($form->expires_at && $form->expires_at->isPast())
-        ) {
+            || ($form->expires_at && $form->expires_at->isPast())) {
             return back()->withErrors(['form' => 'This form is no longer accepting responses.']);
         }
 
@@ -77,7 +75,7 @@ class FormSubmissionController extends Controller
             return back()->withErrors(['form' => 'Payments are not configured for this form. Please contact the organizer.']);
         }
 
-        // Clean the two compulsory fields before validating
+        // Clean the two compulsory fields and force the read-only fields before validating
         $input = (array) $request->input('fields', []);
 
         foreach ($form->fields as $field) {
@@ -90,6 +88,11 @@ class FormSubmissionController extends Controller
                 if ($key === FormField::KEY_MOBILE) {
                     $input[$key] = $this->normalizeMobile($input[$key]);
                 }
+            }
+
+            // A read-only field always gets the admin's value, whatever the browser sent
+            if (! $field->is_system && $field->is_readonly) {
+                $input[$key] = $this->readonlyValue($field);
             }
         }
 
@@ -231,6 +234,20 @@ class FormSubmissionController extends Controller
             'razorpayOrderId' => $orderId,
             'razorpayKeyId' => $config->razorpay_key_id,
         ]);
+    }
+
+    /**
+     * What a read-only field must hold: the admin's value (a list for checkboxes).
+     */
+    private function readonlyValue(FormField $field)
+    {
+        $value = (string) ($field->default_value ?? '');
+
+        if ($field->type === 'checkbox') {
+            return array_values(array_filter(array_map('trim', explode(',', $value)), fn ($v) => $v !== ''));
+        }
+
+        return $value;
     }
 
     /**
