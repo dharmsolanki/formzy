@@ -4,6 +4,11 @@
 
     <x-form-tabs :form="$form" active="register" />
 
+    @php
+        // After a validation error the customer's own answers win over the defaults
+        $hasOld = session()->hasOldInput();
+    @endphp
+
     <x-card>
         <h1 class="text-2xl font-bold text-gray-900">{{ $form->title }}</h1>
 
@@ -38,6 +43,12 @@
                     @php
                         $name = 'fields.' . $field->key;
                         $isMobile = $field->is_system && $field->key === 'mobile';
+                        $isSystem = (bool) $field->is_system;
+                        $locked = ! $isSystem && $field->is_readonly;
+                        $default = (string) ($field->default_value ?? '');
+
+                        // Value to show: what the customer typed, otherwise the admin's default
+                        $value = $hasOld ? old($name) : ($isSystem ? null : $default);
                     @endphp
 
                     <div class="mb-4">
@@ -59,42 +70,57 @@
                         @elseif (in_array($field->type, ['text', 'email', 'number']))
                             <input
                                 type="{{ $field->type }}"
+                                @if ($field->type === 'number') step="any" @endif
                                 name="fields[{{ $field->key }}]"
-                                value="{{ old($name) }}"
-                                {{ $field->is_readonly ? 'readonly' : '' }}
-                                {{ $field->is_required ? 'required' : '' }}
-                                class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 {{ $field->is_readonly ? 'bg-gray-100' : '' }}">
+                                value="{{ $locked ? $default : $value }}"
+                                @if ($field->placeholder) placeholder="{{ $field->placeholder }}" @endif
+                                {{ $locked ? 'readonly' : '' }}
+                                {{ $field->is_required && ! $locked ? 'required' : '' }}
+                                class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 {{ $locked ? 'bg-gray-100 text-gray-600' : '' }}">
 
                         @elseif ($field->type === 'dropdown')
-                            <select name="fields[{{ $field->key }}]" {{ $field->is_required ? 'required' : '' }}
-                                class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            @php $chosen = $locked ? $default : $value; @endphp
+                            <select name="fields[{{ $field->key }}]"
+                                {{ $locked ? 'disabled' : '' }}
+                                {{ $field->is_required && ! $locked ? 'required' : '' }}
+                                class="block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 {{ $locked ? 'bg-gray-100 text-gray-600' : '' }}">
                                 <option value="">-- Select --</option>
                                 @foreach ($field->options ?? [] as $option)
-                                    <option value="{{ $option }}" {{ old($name) === $option ? 'selected' : '' }}>{{ $option }}</option>
+                                    <option value="{{ $option }}" {{ (string) $chosen === (string) $option ? 'selected' : '' }}>{{ $option }}</option>
                                 @endforeach
                             </select>
 
                         @elseif ($field->type === 'radio')
+                            @php $chosen = $locked ? $default : $value; @endphp
                             @foreach ($field->options ?? [] as $option)
-                                <label class="flex items-center mb-1 text-sm text-gray-700">
+                                <label class="flex items-center mb-1 text-sm {{ $locked ? 'text-gray-500' : 'text-gray-700' }}">
                                     <input type="radio" name="fields[{{ $field->key }}]" value="{{ $option }}"
-                                        {{ old($name) === $option ? 'checked' : '' }}
-                                        {{ $field->is_required ? 'required' : '' }}
+                                        {{ (string) $chosen === (string) $option ? 'checked' : '' }}
+                                        {{ $locked ? 'disabled' : '' }}
+                                        {{ $field->is_required && ! $locked ? 'required' : '' }}
                                         class="mr-2 text-indigo-600 focus:ring-indigo-500">
                                     {{ $option }}
                                 </label>
                             @endforeach
 
                         @elseif ($field->type === 'checkbox')
-                            @php $oldChecked = (array) old($name, []); @endphp
+                            @php
+                                $defaultList = array_values(array_filter(array_map('trim', explode(',', $default)), fn ($v) => $v !== ''));
+                                $oldChecked = $locked ? $defaultList : ($hasOld ? (array) old($name, []) : $defaultList);
+                            @endphp
                             @foreach ($field->options ?? [] as $option)
-                                <label class="flex items-center mb-1 text-sm text-gray-700">
+                                <label class="flex items-center mb-1 text-sm {{ $locked ? 'text-gray-500' : 'text-gray-700' }}">
                                     <input type="checkbox" name="fields[{{ $field->key }}][]" value="{{ $option }}"
                                         {{ in_array($option, $oldChecked, true) ? 'checked' : '' }}
+                                        {{ $locked ? 'disabled' : '' }}
                                         class="mr-2 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
                                     {{ $option }}
                                 </label>
                             @endforeach
+                        @endif
+
+                        @if ($field->help_text)
+                            <p class="text-xs text-gray-500 mt-1">{{ $field->help_text }}</p>
                         @endif
 
                         @error($name)
@@ -129,6 +155,7 @@
             </form>
         </div>
     </x-card>
+
     <script>
         // If the customer comes back with the browser Back button, make the button usable again
         window.addEventListener('pageshow', function (e) {
