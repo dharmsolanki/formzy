@@ -148,6 +148,27 @@ class FormController extends Controller
         $validated = $this->validateForm($request);
         $rows = $this->parseFields($request, $form);
 
+        // Customer records must stay with the company they were collected for
+        if ($form->submissions()->exists()
+            && (int) $validated['user_id'] !== (int) $form->user_id) {
+            return back()->withInput()->withErrors([
+                'user_id' => 'The company cannot be changed because this form already has customer records.',
+            ]);
+        }
+
+        // Paid records were collected at the old amount, so it must not change afterwards
+        if ($form->submissions()->where('payment_status', 'paid')->exists()) {
+            $amountChanged = $validated['amount_type'] !== $form->amount_type
+                || ($validated['amount_type'] === 'fixed'
+                    && abs((float) $validated['fixed_amount'] - (float) $form->fixed_amount) > 0.001);
+
+            if ($amountChanged) {
+                return back()->withInput()->withErrors([
+                    'amount_type' => 'The amount cannot be changed because this form already has paid records.',
+                ]);
+            }
+        }
+
         DB::transaction(function () use ($validated, $form, $rows) {
             $before = $this->snapshot($form);
 
@@ -314,6 +335,12 @@ class FormController extends Controller
 
     public function destroy(Form $form)
     {
+        // Paid records must never disappear with a form
+        if ($form->submissions()->where('payment_status', 'paid')->exists()) {
+            return redirect()->route('admin.forms.index')
+                ->withErrors(['form' => 'This form has paid records and cannot be deleted. Deactivate it instead.']);
+        }
+
         $form->delete();
 
         return redirect()->route('admin.forms.index')

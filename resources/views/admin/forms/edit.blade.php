@@ -100,6 +100,10 @@
         }
 
         $currentAmountType = old('amount_type', $form->amount_type);
+
+        // Same rules as the server: company locked once any record exists, amount once a payment exists
+        $companyLocked = $form->submissions()->exists();
+        $amountLocked = $form->submissions()->where('payment_status', 'paid')->exists();
     @endphp
 
     <div class="py-8 px-4 sm:px-6 lg:px-8">
@@ -128,7 +132,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <x-input-label for="user_id" value="Company" />
-                            <select name="user_id" id="user_id" required class="searchable mt-1 block w-full">
+                            <select name="user_id" id="user_id" required @disabled($companyLocked) class="searchable mt-1 block w-full">
                                 <option value="">-- Select Company --</option>
                                 @foreach ($merchants as $merchant)
                                     <option value="{{ $merchant->id }}" {{ old('user_id', $form->user_id) == $merchant->id ? 'selected' : '' }}>
@@ -136,6 +140,10 @@
                                     </option>
                                 @endforeach
                             </select>
+                            @if ($companyLocked)
+                                <input type="hidden" name="user_id" value="{{ $form->user_id }}">
+                                <p class="mt-1 text-xs text-gray-500">Locked: this form already has customer records.</p>
+                            @endif
                             <x-input-error :messages="$errors->get('user_id')" class="mt-1" />
                         </div>
 
@@ -161,22 +169,27 @@
                             <x-input-label value="Amount Type" />
                             <div class="flex gap-6 mt-2">
                                 <label class="flex items-center text-sm text-gray-700">
-                                    <input type="radio" name="amount_type" value="fixed" x-model="amountType"
+                                    <input type="radio" name="amount_type" value="fixed" x-model="amountType" @disabled($amountLocked)
                                            class="mr-2 text-indigo-600 focus:ring-indigo-500">
                                     Fixed Amount
                                 </label>
                                 <label class="flex items-center text-sm text-gray-700">
-                                    <input type="radio" name="amount_type" value="customer_entered" x-model="amountType"
+                                    <input type="radio" name="amount_type" value="customer_entered" x-model="amountType" @disabled($amountLocked)
                                            class="mr-2 text-indigo-600 focus:ring-indigo-500">
                                     Customer Entered
                                 </label>
                             </div>
+                            @if ($amountLocked)
+                                <input type="hidden" name="amount_type" value="{{ $form->amount_type }}">
+                                <input type="hidden" name="fixed_amount" value="{{ $form->fixed_amount }}">
+                                <p class="mt-1 text-xs text-gray-500">Locked: this form already has paid records.</p>
+                            @endif
                             <x-input-error :messages="$errors->get('amount_type')" class="mt-1" />
                         </div>
 
                         <div x-show="amountType === 'fixed'">
                             <x-input-label for="fixed_amount" value="Fixed Amount (₹)" />
-                            <x-text-input id="fixed_amount" name="fixed_amount" type="number" step="0.01" class="mt-1 block w-full" :value="old('fixed_amount', $form->fixed_amount)" />
+                            <x-text-input id="fixed_amount" name="fixed_amount" type="number" step="0.01" :disabled="$amountLocked" class="mt-1 block w-full" :value="old('fixed_amount', $form->fixed_amount)" />
                             <x-input-error :messages="$errors->get('fixed_amount')" class="mt-1" />
                         </div>
 
@@ -201,10 +214,25 @@
                     <div class="space-y-3">
                         <template x-for="(field, index) in fields" :key="index">
                             <div class="border rounded-lg p-4"
-                                 :class="field.is_system ? 'border-indigo-200 bg-indigo-50' : 'border-gray-200 bg-gray-50'">
+                                 :class="[
+                                     field.is_system ? 'border-indigo-200 bg-indigo-50' : 'border-gray-200 bg-gray-50',
+                                     dragFrom !== null && dragOver === index && dragFrom !== index ? 'ring-2 ring-indigo-400' : '',
+                                     dragFrom === index ? 'opacity-50' : ''
+                                 ]"
+                                 :draggable="dragReady === index ? 'true' : 'false'"
+                                 @dragstart="onDragStart($event, index)"
+                                 @dragover="if (dragFrom !== null) { $event.preventDefault(); dragOver = index; }"
+                                 @drop="onDrop($event, index)"
+                                 @dragend="onDragEnd()">
 
                                 <div class="flex items-center justify-between mb-3">
-                                    <span class="text-xs font-semibold uppercase text-gray-500" x-text="'Field ' + (index + 1)"></span>
+                                    <div class="flex items-center gap-2">
+                                        <span style="cursor: pointer; user-select: none;" class="text-gray-400 hover:text-gray-600 text-lg leading-none"
+                                              title="Drag to reorder"
+                                              @mousedown="dragReady = index"
+                                              @mouseup.window="dragReady = null">⠿</span>
+                                        <span class="text-xs font-semibold uppercase text-gray-500" x-text="'Field ' + (index + 1)"></span>
+                                    </div>
 
                                     <div class="flex items-center gap-3">
                                         <span x-show="field.is_system"
@@ -214,9 +242,18 @@
                                               class="text-xs font-medium text-gray-700 bg-gray-200 rounded-full px-2 py-0.5"
                                               x-text="field.answered + ' answer(s)'"></span>
 
+                                        <button type="button" @click="toggle(field)" x-show="!field.is_system"
+                                                class="text-indigo-600 hover:underline text-sm" x-text="field.open ? 'Close' : 'Edit'"></button>
+
                                         <button type="button" @click="removeField(index)" x-show="!field.is_system"
                                                 class="text-red-600 hover:underline text-sm">Remove</button>
                                     </div>
+                                </div>
+
+                                {{-- Short summary while the settings are closed --}}
+                                <div x-show="!field.is_system && !field.open" class="text-sm text-gray-700">
+                                    <span class="font-medium" x-text="field.label"></span>
+                                    <span class="text-gray-500" x-text="'· ' + typeName(field.type) + (field.is_required ? ' · Required' : '') + (field.is_readonly ? ' · Read-only' : '')"></span>
                                 </div>
 
                                 {{-- System field: only the key is sent --}}
@@ -242,7 +279,7 @@
 
                                 {{-- Custom field --}}
                                 <template x-if="!field.is_system">
-                                    <div>
+                                    <div x-show="field.open">
                                         <input type="hidden" :name="'fields['+index+'][key]'" :value="field.key">
 
                                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
@@ -358,6 +395,73 @@
                 fields: @json($initialFields),
                 errors: @json($fieldErrors),
 
+                // Settings stay closed so nothing changes by accident; new rows and rows with errors start open
+                init() {
+                    let custom = 0;
+                    this.fields.forEach((f) => {
+                        f.open = !f.is_system && (!f.key || !!this.errors[custom]);
+                        if (!f.is_system) {
+                            custom++;
+                        }
+                    });
+                },
+
+                typeName(type) {
+                    return { text: 'Text', email: 'Email', number: 'Number', dropdown: 'Dropdown', radio: 'Radio', checkbox: 'Checkbox' }[type] || type;
+                },
+
+                toggle(field) {
+                    if (field.open) {
+                        if (field.label.trim() === '') {
+                            alert('Enter the field label before closing this field.');
+                            return;
+                        }
+                        if (this.needsChoice(field) && !field.label_change) {
+                            alert('Answer the question about this change before closing the field.');
+                            return;
+                        }
+                    }
+                    field.open = !field.open;
+                },
+
+                // Drag and drop order (a drag starts only from the handle)
+                dragReady: null,
+                dragFrom: null,
+                dragOver: null,
+
+                onDragStart(e, index) {
+                    if (this.dragReady !== index) {
+                        e.preventDefault();
+                        return;
+                    }
+                    this.dragFrom = index;
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', String(index));
+                },
+
+                onDrop(e, to) {
+                    if (this.dragFrom === null) {
+                        return;
+                    }
+                    e.preventDefault();
+                    this.moveField(this.dragFrom, to);
+                    this.onDragEnd();
+                },
+
+                onDragEnd() {
+                    this.dragReady = null;
+                    this.dragFrom = null;
+                    this.dragOver = null;
+                },
+
+                moveField(from, to) {
+                    if (from === null || from === to) {
+                        return;
+                    }
+                    const item = this.fields.splice(from, 1)[0];
+                    this.fields.splice(to, 0, item);
+                },
+
                 // Server errors are numbered among custom fields only
                 customIndex(index) {
                     return this.fields.slice(0, index).filter(f => !f.is_system).length;
@@ -390,7 +494,7 @@
                         key: '', is_system: false, label: '', type: 'text',
                         options: '', default_value: '', placeholder: '', help_text: '',
                         is_required: false, is_readonly: false,
-                        original_label: '', original_type: '', answered: 0, label_change: '',
+                        original_label: '', original_type: '', answered: 0, label_change: '', open: true,
                     });
                 },
 
